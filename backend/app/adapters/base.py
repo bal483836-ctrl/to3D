@@ -11,6 +11,7 @@ from dataclasses import dataclass, field
 import trimesh
 
 from app.core.preprocess import TextConstraints
+from app.models.schemas import Guidance
 
 
 @dataclass
@@ -29,26 +30,40 @@ class TextureDescriptor:
 
 @dataclass
 class GenerationResult:
-    """一次生成的产物：几何 + 纹理描述 + 溯源。"""
+    """一份联合生成的产物：几何 + 纹理描述 + 溯源。"""
 
     mesh: trimesh.Trimesh
     texture: TextureDescriptor
-    source: str  # "image" | "text"
-    provided_views: set[str] = field(default_factory=set)  # 图通道实际提供的视角
+    source: str = "joint"  # 联合生成
+    provided_views: set[str] = field(default_factory=set)  # 实际提供的视角
+    guidance: Guidance | None = None  # 本次生成使用的双模态引导权重
 
 
 class Hunyuan3DAdapter(abc.ABC):
-    """混元 3D 推理适配器抽象接口。"""
+    """混元 3D 推理适配器抽象接口（图文联合条件生成）。"""
 
     @abc.abstractmethod
-    def image_to_3d(
-        self, images: list, prompt: str, constraints: TextConstraints
+    def generate(
+        self,
+        images: list,
+        prompt: str,
+        constraints: TextConstraints,
+        guidance: Guidance,
     ) -> GenerationResult:
-        """图生 3D（通道 A，主几何）。"""
+        """图文联合条件生成：多视图图像特征与文字特征融合为同一条件序列，
+        经 CFG 双模态引导，**单次**生成一份模型（几何 + 纹理）。
+
+        guidance.image_scale / text_scale 决定两种模态在联合生成中的相对影响，
+        两者同时生效，而非切换到单一模态。
+        """
 
     @abc.abstractmethod
-    def text_to_3d(self, prompt: str, constraints: TextConstraints) -> GenerationResult:
-        """文生 3D（通道 B，语义参照）。"""
+    def build_reference(self, constraints: TextConstraints) -> GenerationResult:
+        """仅供一致性自检使用的「规格重建」参照（不作为交付物）。
+
+        由文字约束重建目标规格，用于度量联合产物在各维度上的偏离；
+        生产环境中几何自检更应直接用输入图像做多视角轮廓/CLIP 比对。
+        """
 
     @abc.abstractmethod
     def refine_geometry(
@@ -58,7 +73,7 @@ class Hunyuan3DAdapter(abc.ABC):
         reference: GenerationResult,
         constraints: TextConstraints,
     ) -> GenerationResult:
-        """按 focus 维度对几何做定向修正（如底部/比例），可参考 reference。"""
+        """对联合产物按 focus 维度做几何定向修正（提高该维度的文字引导后局部重生成）。"""
 
     @abc.abstractmethod
     def repaint(
@@ -67,4 +82,4 @@ class Hunyuan3DAdapter(abc.ABC):
         focus: list[str],
         constraints: TextConstraints,
     ) -> GenerationResult:
-        """按文字约束重绘纹理/材质（Hunyuan3D-Paint，修正 pattern/material）。"""
+        """对联合产物按文字约束重绘纹理/材质（Hunyuan3D-Paint，修正 pattern/material）。"""

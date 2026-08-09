@@ -50,8 +50,8 @@ async def test_correction_loop_converges():
 
 
 @pytest.mark.asyncio
-async def test_no_refine_when_already_consistent():
-    """上传全套视角（含底图）时，初始即应接近一致，修正轮数很少。"""
+async def test_bottom_from_image_when_bottom_view_provided():
+    """上传底图时，联合生成的底部直接由图像还原，无需以文修正底部。"""
     req = _make_request(
         images=[
             ImageInput(view=ViewName.front, url="x", required=True),

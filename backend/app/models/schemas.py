@@ -26,22 +26,28 @@ class ViewName(str, Enum):
 
 
 class FusionStrategy(str, Enum):
-    """图文融合主导策略（方案 §5.4 / §6.1）。"""
+    """图文联合生成的模态引导偏好（方案 §5.4 / §6.1）。
 
-    image_primary = "image_primary"  # 以图为主（默认）
+    映射为 CFG 双模态引导权重 (image_scale, text_scale)：两种模态同时作为条件，
+    权重决定谁在联合生成中影响更大——而非切换到单一模态。
+    """
+
+    image_primary = "image_primary"  # 图像引导更强（默认）
     balanced = "balanced"  # 图文均衡
-    text_correct = "text_correct"  # 以文校正
+    text_correct = "text_correct"  # 文字引导更强
 
 
 class TaskStatus(str, Enum):
-    """任务状态机（方案 §9）。"""
+    """任务状态机（方案 §9）。
+
+    图文「同时」生成：单次联合条件生成 → 自检 → 定向修正，全程只有一份模型。
+    """
 
     queued = "queued"
     preprocessing = "preprocessing"
-    image3d = "image3d"
-    text3d = "text3d"
-    comparing = "comparing"
-    refining = "refining"
+    generating = "generating"  # 图+文联合条件，单次生成
+    verifying = "verifying"  # 对联合产物做六维一致性自检
+    refining = "refining"  # 定向修正（调模态引导权重 / 局部重绘）
     awaiting_user = "awaiting_user"
     done = "done"
     failed = "failed"
@@ -87,6 +93,21 @@ class ImageInput(BaseModel):
     required: bool = False
 
 
+class Guidance(BaseModel):
+    """联合生成时的双模态 CFG 引导权重。两者同时生效，不是二选一。"""
+
+    image_scale: float = 1.0
+    text_scale: float = 0.35
+
+
+# 策略 → 双模态引导权重（图与文始终同时作为条件，权重决定相对影响）
+_STRATEGY_GUIDANCE: dict[FusionStrategy, tuple[float, float]] = {
+    FusionStrategy.image_primary: (1.0, 0.35),
+    FusionStrategy.balanced: (0.75, 0.75),
+    FusionStrategy.text_correct: (0.45, 1.0),
+}
+
+
 class FusionConfig(BaseModel):
     strategy: FusionStrategy = FusionStrategy.image_primary
     consistency_threshold: float = Field(0.8, ge=0.0, le=1.0)
@@ -99,6 +120,10 @@ class FusionConfig(BaseModel):
             w.update(self.dimension_weights)
         total = sum(w.values()) or 1.0
         return {k: v / total for k, v in w.items()}
+
+    def guidance(self) -> Guidance:
+        img, txt = _STRATEGY_GUIDANCE[self.strategy]
+        return Guidance(image_scale=img, text_scale=txt)
 
 
 class GenerationRequest(BaseModel):

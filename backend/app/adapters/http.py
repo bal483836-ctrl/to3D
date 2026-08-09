@@ -7,10 +7,15 @@
     TO3D_HUNYUAN_ENDPOINT=https://your-hunyuan3d-service
 
 约定的服务端点（可按实际服务调整映射）：
-    POST /image-to-3d   {images, prompt} -> {mesh_url/glb_base64, texture:{...}}
-    POST /text-to-3d    {prompt}         -> 同上
-    POST /repaint       {mesh, prompt, focus} -> {texture:{...}}
-    POST /refine        {mesh, focus, reference} -> {mesh_url/glb_base64}
+    POST /generate    {images, prompt, image_scale, text_scale}
+                      -> {mesh_url/glb_base64, texture:{...}}   # 图文联合条件生成
+    POST /reference   {prompt}                 -> 同上           # 规格重建，仅自检用
+    POST /repaint     {mesh, prompt, focus}    -> {texture:{...}}
+    POST /refine      {mesh, focus, prompt}    -> {mesh_url/glb_base64}
+
+真实服务实现要点：把多视图图像编码(DINO/CLIP)与文字编码(CLIP text)拼接为
+同一条件序列送入 Hunyuan3D-DiT，用 image_scale/text_scale 做 CFG 双模态引导，
+单次去噪得到一份几何；纹理由 Hunyuan3D-Paint 联合图文条件生成。
 
 本文件默认不被 Mock 流程加载；仅当 TO3D_ADAPTER=http 时启用。
 """
@@ -24,6 +29,7 @@ import trimesh
 
 from app.adapters.base import GenerationResult, Hunyuan3DAdapter, TextureDescriptor
 from app.core.preprocess import TextConstraints
+from app.models.schemas import Guidance
 
 
 class HttpHunyuan3DAdapter(Hunyuan3DAdapter):
@@ -53,12 +59,16 @@ class HttpHunyuan3DAdapter(Hunyuan3DAdapter):
             roughness=t.get("roughness", 1.0),
         )
 
-    def image_to_3d(self, images, prompt, constraints: TextConstraints) -> GenerationResult:
+    def generate(
+        self, images, prompt, constraints: TextConstraints, guidance: Guidance
+    ) -> GenerationResult:
         resp = self._client.post(
-            f"{self.endpoint}/image-to-3d",
+            f"{self.endpoint}/generate",
             json={
                 "images": [img.model_dump() for img in images],
                 "prompt": prompt,
+                "image_scale": guidance.image_scale,
+                "text_scale": guidance.text_scale,
             },
         )
         resp.raise_for_status()
@@ -67,16 +77,19 @@ class HttpHunyuan3DAdapter(Hunyuan3DAdapter):
         return GenerationResult(
             mesh=self._load_mesh(data),
             texture=self._texture(data),
-            source="image",
+            source="joint",
             provided_views=provided,
+            guidance=guidance,
         )
 
-    def text_to_3d(self, prompt, constraints: TextConstraints) -> GenerationResult:
-        resp = self._client.post(f"{self.endpoint}/text-to-3d", json={"prompt": prompt})
+    def build_reference(self, constraints: TextConstraints) -> GenerationResult:
+        resp = self._client.post(
+            f"{self.endpoint}/reference", json={"prompt": constraints.raw}
+        )
         resp.raise_for_status()
         data = resp.json()
         return GenerationResult(
-            mesh=self._load_mesh(data), texture=self._texture(data), source="text"
+            mesh=self._load_mesh(data), texture=self._texture(data), source="reference"
         )
 
     def refine_geometry(self, result, focus, reference, constraints) -> GenerationResult:

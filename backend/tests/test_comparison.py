@@ -47,32 +47,48 @@ def test_shape_score_identical_high():
     assert s > 0.9
 
 
-def test_compare_flags_missing_pattern_and_material():
+def test_joint_generation_self_check_flags_undersatisfied():
+    """图文联合生成(图像引导为主)时，图像不可得且文字引导偏弱的信息欠还原，
+    自检应逐项标出并给出定向修正动作。"""
     adapter = MockHunyuan3DAdapter()
     prompt = "青花瓷花瓶，细长颈，圈足，缠枝莲纹，釉面高光"
     c = extract_constraints(prompt)
-    # 未上传底图 → 底部会被误判；花纹/材质在图通道缺失
-    imgs = _imgs([ViewName.front, ViewName.left45, ViewName.right])
-    a = adapter.image_to_3d(imgs, prompt, c)
-    b = adapter.text_to_3d(prompt, c)
-    report = comparison.compare(a, b, c, FusionConfig(consistency_threshold=0.8))
+    fc = FusionConfig(strategy="image_primary", consistency_threshold=0.8)
+    imgs = _imgs([ViewName.front, ViewName.left45, ViewName.right])  # 无底图
+    out = adapter.generate(imgs, prompt, c, fc.guidance())
+    ref = adapter.build_reference(c)
+    report = comparison.compare(out, ref, c, fc)
 
     assert not report.passed
     assert "repaint_pattern" in report.actions
     assert "adjust_material" in report.actions
-    assert "refine_bottom" in report.actions  # 无底图 → 以文校正
-    # 有正/侧图 → 器型以图为准，且形状相近应达标
+    assert "refine_bottom" in report.actions  # 无底图 + 文字引导弱 → 以文校正
+    # 有正/侧图 → 器型以图为准，形状应达标
     assert report.dimension(Dimension.shape).passed
 
 
+def test_text_strong_guidance_satisfies_in_one_pass():
+    """文字引导更强时，联合生成一次即应满足文字约束（无待修正动作）。"""
+    adapter = MockHunyuan3DAdapter()
+    prompt = "青花瓷花瓶，细长颈，圈足，缠枝莲纹，釉面高光"
+    c = extract_constraints(prompt)
+    fc = FusionConfig(strategy="text_correct", consistency_threshold=0.8)
+    imgs = _imgs([ViewName.front, ViewName.left45, ViewName.right])
+    out = adapter.generate(imgs, prompt, c, fc.guidance())
+    ref = adapter.build_reference(c)
+    report = comparison.compare(out, ref, c, fc)
+    assert report.actions == []
+    assert report.passed
+
+
 def test_authority_arbitration_bottom_with_image():
-    """上传了底图时，底部偏差应以图为准，不触发以文修正。"""
+    """上传了底图时，底部由图像直接还原，不触发以文修正。"""
     adapter = MockHunyuan3DAdapter()
     prompt = "陶瓷花瓶，圈足"
     c = extract_constraints(prompt)
+    fc = FusionConfig(strategy="image_primary", consistency_threshold=0.8)
     imgs = _imgs([ViewName.front, ViewName.bottom])  # 含底图
-    a = adapter.image_to_3d(imgs, prompt, c)
-    b = adapter.text_to_3d(prompt, c)
-    report = comparison.compare(a, b, c, FusionConfig(consistency_threshold=0.8))
-    # 有底图时底部由图正确重建 → 通过；不应出现 refine_bottom 动作
+    out = adapter.generate(imgs, prompt, c, fc.guidance())
+    ref = adapter.build_reference(c)
+    report = comparison.compare(out, ref, c, fc)
     assert "refine_bottom" not in report.actions

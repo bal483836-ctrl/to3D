@@ -1,12 +1,13 @@
 """Mock 混元 3D 适配器：无 GPU 也能产出真实网格，用于本地开发与测试。
 
-它以「文字约束」为标准答案构造一个理想网格(文通道)，并模拟图通道的两类
-典型缺陷，从而让比对引擎与修正闭环有真实数据可跑、可收敛：
+模拟「图文联合条件生成」：图与文同时作为条件，一次生成一份网格。双模态引导
+权重(guidance)决定各模态影响。当文字引导偏弱、且某信息在图像中不可得时，会
+出现典型欠还原缺陷，从而让一致性自检与定向修正有真实数据可跑、可收敛：
 
-  1. 缺失视角 → 底部被误判为平底（若未上传底图）。
-  2. 纹理/材质在图片中不可靠 → 花纹缺失、釉面高光被当作哑光。
+  1. 未上传底图 且 文字引导不足 → 底部欠还原（平底）。
+  2. 文字引导不足 → 花纹缺失、釉面高光被当作哑光。
 
-修正阶段(refine_geometry / repaint)按文字约束把这些缺陷拉回一致。
+自检发现后，refine/repaint 相当于提高对应维度的文字引导并局部重生成/重绘。
 真实接入时用 HttpHunyuan3DAdapter 替换本类即可，接口完全一致。
 """
 from __future__ import annotations
@@ -16,6 +17,10 @@ import trimesh
 
 from app.adapters.base import GenerationResult, Hunyuan3DAdapter, TextureDescriptor
 from app.core.preprocess import TextConstraints
+from app.models.schemas import Guidance
+
+# 文字引导权重超过该阈值，才足以让「图像中不可得」的信息被联合生成采纳
+_TEXT_APPLY_THRESHOLD = 0.6
 
 # 材质 → (metalness, roughness) 先验
 _MATERIAL_PBR = {
@@ -74,8 +79,47 @@ def _material_pbr(constraints: TextConstraints) -> tuple[float, float]:
 class MockHunyuan3DAdapter(Hunyuan3DAdapter):
     """确定性 Mock，便于稳定测试。"""
 
-    def text_to_3d(self, prompt: str, constraints: TextConstraints) -> GenerationResult:
-        # 文通道：以文字约束为标准答案构造理想体
+    def generate(
+        self,
+        images: list,
+        prompt: str,
+        constraints: TextConstraints,
+        guidance: Guidance,
+    ) -> GenerationResult:
+        """图文联合条件生成：图与文同时作为条件，单次生成一份网格 + 纹理。"""
+        provided = {getattr(img, "view", getattr(img, "value", str(img))) for img in images}
+        provided = {v.value if hasattr(v, "value") else v for v in provided}
+        has_bottom = "bottom" in provided
+        text_strong = guidance.text_scale >= _TEXT_APPLY_THRESHOLD
+
+        # 体型/比例：图像可见 + 文字一致 → 联合还原良好
+        # 底部：图像可见(有底图) → 采用；否则需足够文字引导才能采纳文字规格
+        if has_bottom or text_strong:
+            bottom = constraints.bottom_type or "flat"
+        else:
+            bottom = "flat"  # 图像不可得 + 文字引导不足 → 欠还原
+        mesh = _build_mesh(constraints, bottom)
+
+        # 纹理/材质：花纹与釉面高光在图像中常不可靠，需足够文字引导才被联合采纳
+        metal, rough = _material_pbr(constraints)
+        if text_strong:
+            patterns = list(constraints.patterns)
+            glossy = bool(constraints.glossy)
+            rough = min(rough, 0.15) if constraints.glossy else rough
+        else:
+            patterns = []
+            glossy = False
+            rough = max(rough, 0.55)
+        tex = TextureDescriptor(
+            patterns=patterns, glossy=glossy, metalness=metal, roughness=rough
+        )
+        return GenerationResult(
+            mesh=mesh, texture=tex, source="joint",
+            provided_views=provided, guidance=guidance,
+        )
+
+    def build_reference(self, constraints: TextConstraints) -> GenerationResult:
+        """规格重建参照（仅用于自检，不交付）。"""
         bottom = constraints.bottom_type or "flat"
         mesh = _build_mesh(constraints, bottom)
         metal, rough = _material_pbr(constraints)
@@ -83,32 +127,9 @@ class MockHunyuan3DAdapter(Hunyuan3DAdapter):
             patterns=list(constraints.patterns),
             glossy=bool(constraints.glossy),
             metalness=metal,
-            roughness=rough if not constraints.glossy else min(rough, 0.15),
+            roughness=min(rough, 0.15) if constraints.glossy else rough,
         )
-        return GenerationResult(mesh=mesh, texture=tex, source="text")
-
-    def image_to_3d(
-        self, images: list, prompt: str, constraints: TextConstraints
-    ) -> GenerationResult:
-        provided = {getattr(img, "view", getattr(img, "value", str(img))) for img in images}
-        provided = {v.value if hasattr(v, "value") else v for v in provided}
-        has_bottom = "bottom" in provided
-
-        # 几何：图片可见的体型/比例还原良好；底部若无底图则误判为平底
-        bottom = (constraints.bottom_type or "flat") if has_bottom else "flat"
-        mesh = _build_mesh(constraints, bottom)
-
-        # 纹理：图片中花纹不可靠 → 缺失；釉面高光常因光照被当作哑光
-        metal, rough = _material_pbr(constraints)
-        tex = TextureDescriptor(
-            patterns=[],          # 未捕获花纹
-            glossy=False,         # 误判为哑光
-            metalness=metal,
-            roughness=max(rough, 0.55),
-        )
-        return GenerationResult(
-            mesh=mesh, texture=tex, source="image", provided_views=provided
-        )
+        return GenerationResult(mesh=mesh, texture=tex, source="reference")
 
     def refine_geometry(
         self,

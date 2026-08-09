@@ -1,4 +1,4 @@
-<title>图文双通道 3D 生成 · 方案设计</title>
+<title>图文联合 3D 生成 · 方案设计</title>
 <style>
   :root{
     --bg:#f5f6f8; --surface:#ffffff; --surface-2:#eef0f4;
@@ -184,14 +184,14 @@
 <header>
   <div class="wrap">
     <div class="badge"><span class="dot"></span> 基于混元 3D · Hunyuan3D</div>
-    <h1>一份 3D 模型，由多图与文字共同生成</h1>
-    <p class="lede">图片负责还原看得见的细节，文字负责校正全局语义。两条生成通道互为裁判，在六个维度上比对差异、定向修正，直到一致。</p>
+    <h1>一份 3D 模型，由多图与文字<em>同时</em>生成</h1>
+    <p class="lede">图像特征与文字特征融合成同一个条件，一次联合生成一份模型——不是"图生一个、文生一个再比"。随后用六维一致性对这同一份产物自检、定向修正，直到一致。</p>
     <div class="formula">
       <span class="tok img">多视图 (2–8)</span>
-      <span class="op">+</span>
+      <span class="op">⊕</span>
       <span class="tok txt">文字描述</span>
-      <span class="op">→</span>
-      <span class="tok out">单一收敛模型</span>
+      <span class="op">→ 联合条件 →</span>
+      <span class="tok out">一份模型</span>
     </div>
   </div>
 </header>
@@ -200,30 +200,37 @@
   <div class="wrap">
     <div class="sec-head">
       <div class="eyebrow">核心机制</div>
-      <h2>双通道生成 · 比对 · 修正闭环</h2>
-      <p>图生 3D 产出主几何，文生 3D 作为语义标尺。比对引擎逐维打分，不一致则以图生 3D 为准定向修正，有界迭代收敛。</p>
+      <h2>图文联合生成 · 自检 · 修正闭环</h2>
+      <p>多视图图像 tokens 与文字 tokens 拼接为同一条件序列，经 CFG 双模态引导，单次生成一份模型。自检引擎对这份产物逐维打分，不一致则调高对应维度的文字引导定向修正，有界迭代收敛。</p>
     </div>
 
     <div class="channels">
       <div class="chan img">
-        <div class="role">通道 A · 主几何</div>
-        <h3>图生 3D</h3>
-        <p>多张视图经多视图条件生成基础网格，再依输入图生成 PBR 纹理。最终交付以此为主体。</p>
-        <span class="model">Hunyuan3D-MV + Paint</span>
+        <div class="role">条件 · 图像</div>
+        <h3>多视图图像编码</h3>
+        <p>各视角图经 DINO/CLIP 编码为图像 tokens，还原可见的体型与表面细节。</p>
+        <span class="model">DINO / CLIP tokens</span>
       </div>
       <div class="chan txt">
-        <div class="role">通道 B · 语义参照</div>
-        <h3>文生 3D</h3>
-        <p>文字 → 多视角参考图 → 三维化，作为"文字理想形态"。不直接交付，只用于比对与约束补强。</p>
-        <span class="model">Text → Image → 3D</span>
+        <div class="role">条件 · 文字</div>
+        <h3>文字编码</h3>
+        <p>文字经 CLIP text encoder 编码为文本 tokens，约束全局语义与不可见区域。</p>
+        <span class="model">CLIP text tokens</span>
       </div>
     </div>
 
-    <div class="converge">↓ 汇聚 ↓</div>
+    <div class="converge">↓ 拼接为同一条件序列 · CFG 双模态引导 (image_scale / text_scale) ↓</div>
+
+    <div class="node" style="border-color:var(--merge);border-width:1.5px;margin-bottom:12px">
+      <h3>Hunyuan3D-DiT + Paint <span class="pin">单次联合生成</span></h3>
+      <p style="margin:0;color:var(--muted);font-size:14px">图与文同时作为条件，一次去噪生成一份几何 + 纹理。这是唯一交付主体。</p>
+    </div>
+
+    <div class="converge">↓ 对同一份产物自检 ↓</div>
 
     <div class="node judge">
-      <h3>一致性比对引擎 <span class="pin">JUDGE</span></h3>
-      <p style="margin:0;color:var(--muted);font-size:14px">先做包围盒对齐 + ICP 配准与尺度归一化，再逐维度打分产出可解释差异报告。</p>
+      <h3>一致性自检引擎 <span class="pin">SELF-CHECK</span></h3>
+      <p style="margin:0;color:var(--muted);font-size:14px">参照输入图像证据与文字约束规格；先做包围盒对齐 + ICP 归一化，再逐维度打分产出可解释差异报告。</p>
       <div class="dims">
         <div class="dim"><div class="zh">器型</div><div class="en">shape</div></div>
         <div class="dim"><div class="zh">花纹</div><div class="en">pattern</div></div>
@@ -235,11 +242,11 @@
       <div class="loop">
         <div class="branch ok">
           <div class="lab">✓ 全维度达标</div>
-          <p>直接输出通道 A 模型，附最终差异报告与生成溯源。</p>
+          <p>输出这份联合产物，附最终差异报告与生成溯源（含所用引导权重）。</p>
         </div>
         <div class="branch fix">
           <div class="lab">↻ 存在偏差 · 修正</div>
-          <p>几何偏差→局部重跑图生 3D；纹理/材质偏差→注入文字约束重跑 Paint。回到比对，最多 N 轮。</p>
+          <p>提高该维度文字引导后：几何偏差→局部重生成；纹理/材质偏差→重跑 Paint。回到自检，最多 N 轮，取历史最优。</p>
         </div>
       </div>
     </div>
@@ -249,9 +256,9 @@
 <section>
   <div class="wrap">
     <div class="sec-head">
-      <div class="eyebrow">比对引擎</div>
+      <div class="eyebrow">自检引擎</div>
       <h2>六维一致性差异报告</h2>
-      <p>每维归一到 0–1 并与阈值比较；有对应视角图则以图为准，无图但文字明确则以文字校正。下方为一次比对示例。</p>
+      <p>对联合产物逐维打分并与阈值比较；有对应视角图则以图像为准，无图但文字明确则以文字校正。下方为一次自检示例。</p>
     </div>
     <div class="report">
       <div class="rowlist">
@@ -289,11 +296,11 @@
         <div class="textbox">青花瓷花瓶，细长颈，圈足，缠枝莲纹，釉面高光<span class="ph"> …</span></div>
         <div class="tags"><b>材质·青花</b><b>器型·细长颈</b><b>底·圈足</b><b>纹样·缠枝莲</b></div>
 
-        <div class="field-label">融合策略（新增）</div>
+        <div class="field-label">模态引导权重（图与文同时生效）</div>
         <div class="strat">
-          <div class="opt on"><span class="radio"></span>以图为主</div>
+          <div class="opt on"><span class="radio"></span>图像引导更强</div>
           <div class="opt"><span class="radio"></span>图文均衡</div>
-          <div class="opt"><span class="radio"></span>以文校正</div>
+          <div class="opt"><span class="radio"></span>文字引导更强</div>
         </div>
 
         <div class="field-label">一致性阈值 0.80 · 最大修正轮数 2</div>
@@ -329,7 +336,7 @@
     <div class="sec-head">
       <div class="eyebrow">工程实现</div>
       <h2>技术栈与迭代路线</h2>
-      <p>通道 A / B 无依赖，可并行执行以压缩总时延；比对汇聚后进入有界修正循环。</p>
+      <p>图文融合为同一条件、单次联合生成一份模型；自检后进入有界修正循环。</p>
     </div>
     <div class="cols">
       <div class="card">
@@ -338,13 +345,13 @@
         <div class="stack-row"><span class="k">API / BFF</span><span class="v">FastAPI / NestJS</span></div>
         <div class="stack-row"><span class="k">任务编排</span><span class="v">Temporal · DAG 状态机</span></div>
         <div class="stack-row"><span class="k">推理</span><span class="v">Hunyuan3D DiT·MV·Paint</span></div>
-        <div class="stack-row"><span class="k">比对</span><span class="v">CLIP·DINO·VQA·Open3D</span></div>
+        <div class="stack-row"><span class="k">自检</span><span class="v">CLIP·DINO·VQA·Open3D</span></div>
         <div class="stack-row"><span class="k">存储</span><span class="v">OSS · PostgreSQL · Redis</span></div>
       </div>
       <div class="card">
         <h3>里程碑</h3>
-        <div class="mile"><div class="m">M1</div><div class="t"><b>打通闭环</b><span>图+文输入 · 三维几何比对 · 单轮修正 · 输出 glb</span></div></div>
-        <div class="mile"><div class="m">M2</div><div class="t"><b>全维度比对</b><span>补齐花纹/底部/材质 · 雷达图与证据 · 人在环</span></div></div>
+        <div class="mile"><div class="m">M1</div><div class="t"><b>打通闭环</b><span>图+文联合生成 · 几何自检 · 修正收敛 · 输出 glb</span></div></div>
+        <div class="mile"><div class="m">M2</div><div class="t"><b>接入真实混元3D</b><span>双模态 CFG 引导 · 花纹/材质检测 · 雷达图 · 人在环</span></div></div>
         <div class="mile"><div class="m">M3</div><div class="t"><b>修正智能化</b><span>局部重生成 · 冲突仲裁 · 按品类自动配权</span></div></div>
         <div class="mile"><div class="m">M4</div><div class="t"><b>规模化</b><span>并行编排 · 缓存复用 · 成本时延优化 · 开放 API</span></div></div>
       </div>
@@ -354,6 +361,6 @@
 
 <footer>
   <div class="wrap">
-    完整方案（架构图、状态机、API 契约、风险对策）见仓库 <code>docs/方案设计.md</code>。核心创新：文字作为跨模态一致性裁判，把图与文两种模态的短板互相补齐。
+    完整方案（架构图、状态机、API 契约、风险对策）见仓库 <code>docs/方案设计.md</code>。核心创新：把图像与文字融合为同一条件、一次联合生成一份模型，再用六维一致性对这份产物自检修正。
   </div>
 </footer>

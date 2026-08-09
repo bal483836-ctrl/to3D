@@ -12,29 +12,28 @@
 <body>
   <header class="topbar">
     <div class="brand"><span class="logo">◉</span> 图/文生 3D</div>
-    <div class="sub">多图 + 文字 · 双通道生成 · 一致性比对修正</div>
+    <div class="sub">图 + 文 同时作为条件 · 联合生成一份模型 · 一致性自检修正</div>
   </header>
 
   <main class="layout">
     <!-- 左侧：输入面板 -->
     <section class="panel">
       <div class="seg" id="modeSeg">
-        <span data-v="text">文生3D</span>
-        <span data-v="image" class="on">图生3D</span>
+        <span data-v="joint" class="on">图文联合生成</span>
       </div>
 
-      <label class="lbl"><span class="star">★</span> 文字描述（与图片共同驱动）</label>
+      <label class="lbl"><span class="star">★</span> 文字描述（与图片同时作为生成条件）</label>
       <textarea id="prompt" rows="3" placeholder="例如：青花瓷花瓶，细长颈，圈足，缠枝莲纹，釉面高光"></textarea>
       <div class="examples">
         <button class="ex">青花瓷花瓶，细长颈，圈足，缠枝莲纹，釉面高光</button>
         <button class="ex">金属机器人摆件，矮胖，平底，对称，磨砂哑光</button>
       </div>
 
-      <label class="lbl">融合策略</label>
+      <label class="lbl">模态引导权重（图与文同时生效）</label>
       <div class="strat" id="strat">
-        <label class="opt on"><input type="radio" name="strategy" value="image_primary" checked/> 以图为主</label>
+        <label class="opt on"><input type="radio" name="strategy" value="image_primary" checked/> 图像引导更强</label>
         <label class="opt"><input type="radio" name="strategy" value="balanced"/> 图文均衡</label>
-        <label class="opt"><input type="radio" name="strategy" value="text_correct"/> 以文校正</label>
+        <label class="opt"><input type="radio" name="strategy" value="text_correct"/> 文字引导更强</label>
       </div>
 
       <div class="grid2">

@@ -16,9 +16,8 @@ const DIM_LABELS = {
 };
 const STAGE_SEQ = [
   ['preprocessing', '预处理 · 文字约束抽取'],
-  ['image3d', '通道A 图生3D（主几何）'],
-  ['text3d', '通道B 文生3D（语义参照）'],
-  ['comparing', '一致性比对'],
+  ['generating', '图文联合生成（图 + 文同时）'],
+  ['verifying', '一致性自检'],
   ['refining', '定向修正'],
   ['done', '完成'],
 ];
@@ -138,12 +137,12 @@ function onState(s) {
 function renderStages(s) {
   const box = document.getElementById('stages');
   const order = STAGE_SEQ.map((x) => x[0]);
-  const idx = order.indexOf(s.status === 'awaiting_user' ? 'comparing' : s.status);
+  const idx = order.indexOf(s.status === 'awaiting_user' ? 'verifying' : s.status);
   box.innerHTML = STAGE_SEQ.map(([k, label], i) => {
     let cls = 'stage';
     if (i < idx || s.status === 'done') cls += ' done';
     if (i === idx && s.status !== 'done') cls += ' active';
-    const r = (k === 'comparing' || k === 'refining') && s.round ? `第 ${s.round} 轮` : '';
+    const r = (k === 'verifying' || k === 'refining') && s.round ? `第 ${s.round} 轮` : '';
     return `<div class="${cls}"><span class="b"></span>${label}<span class="r">${r}</span></div>`;
   }).join('');
 }

@@ -1,9 +1,11 @@
-"""六维一致性比对引擎（方案 §5，产品核心）。
+"""六维一致性自检引擎（方案 §5，产品核心）。
 
-对图通道结果 A 与文通道结果 B 逐维度打分，产出可解释的 DiffReport。
+对**联合生成的单一产物** output 做一致性自检：度量它相对「规格参照 reference」
+（由文字约束重建，仅供打分）与文字约束本身在各维度的偏离，产出可解释 DiffReport。
+注意：这不是「两个模型互比」，reference 不作为交付物，只作为验证尺子。
 - 几何维度(shape/height/width/bottom)：直接在网格上做真实测量。
 - 语义维度(pattern/material)：基于纹理描述与文字约束评分（生产环境由 CLIP/VQA/PBR 分析得到描述）。
-- 冲突仲裁(§5.4)：某维度有对应视角图 → 以图为准(A)；无图但文字明确 → 以文校正。
+- 冲突仲裁(§5.4)：某维度有对应视角图 → 以图为准(接受)；无图但文字明确 → 以文校正。
 """
 from __future__ import annotations
 
@@ -211,22 +213,25 @@ _ACTION_BY_DIM = {
 
 
 def compare(
-    image_result: GenerationResult,
-    text_result: GenerationResult,
+    output: GenerationResult,
+    reference: GenerationResult,
     constraints: TextConstraints,
     fusion: FusionConfig,
 ) -> DiffReport:
-    """执行六维比对，产出 DiffReport。"""
+    """对联合产物 output 执行六维一致性自检，产出 DiffReport。
+
+    reference 为规格重建参照，仅用于几何/材质的偏离度量，不作为交付物。
+    """
     weights = fusion.weights()
     threshold = fusion.consistency_threshold
-    provided = image_result.provided_views
+    provided = output.provided_views
 
     results: list[DimensionResult] = []
     actions: list[str] = []
     overall = 0.0
 
     for dim, scorer in _SCORERS.items():
-        score, detail = scorer(image_result, text_result, constraints)
+        score, detail = scorer(output, reference, constraints)
         passed = score >= threshold
         authority, need_fix = _arbitrate(dim, provided, constraints, passed)
         results.append(

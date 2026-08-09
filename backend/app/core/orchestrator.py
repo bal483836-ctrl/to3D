@@ -1,6 +1,7 @@
-"""任务编排：双通道生成 → 比对 → 修正闭环（方案 §4 / §9）。
+"""任务编排：图文联合生成 → 一致性自检 → 定向修正闭环（方案 §4 / §9）。
 
-DAG：通道 A(图生3D) 与 通道 B(文生3D) 并行 → 汇聚比对 → 有界修正循环。
+图与文同时作为条件，单次联合生成一份模型；随后对这一份产物做六维自检，
+不达标则调高对应维度的文字引导并局部重生成/重绘，有界迭代收敛。
 无 GPU 时用 MockHunyuan3DAdapter，全链路可跑、可收敛。
 """
 from __future__ import annotations
@@ -74,39 +75,36 @@ async def run_generation(task_id: str, req: GenerationRequest) -> None:
         constraints = preprocess.extract_constraints(req.prompt)
         preprocess.validate_images(req.images)
 
-        # 阶段 A / B：并行执行（无依赖）
-        state.status = TaskStatus.image3d
-        state.progress = 0.15
-        await store.update(state)
-
         loop = asyncio.get_running_loop()
-        a_fut = loop.run_in_executor(
-            None, adapter.image_to_3d, req.images, req.prompt, constraints
-        )
-        b_fut = loop.run_in_executor(
-            None, adapter.text_to_3d, req.prompt, constraints
-        )
-        image_result, text_result = await asyncio.gather(a_fut, b_fut)
 
-        state.status = TaskStatus.text3d
-        state.progress = 0.45
+        # 阶段 1：图文联合条件生成（单次，一份模型）
+        state.status = TaskStatus.generating
+        state.progress = 0.2
         await store.update(state)
+        guidance = req.fusion.guidance()
+        output = await loop.run_in_executor(
+            None, adapter.generate, req.images, req.prompt, constraints, guidance
+        )
+        # 规格参照仅用于自检打分（不交付）
+        reference = await loop.run_in_executor(
+            None, adapter.build_reference, constraints
+        )
 
-        # 修正闭环（记录历史最优，防修正发散——方案 §11）
-        best: GenerationResult = image_result
+        # 阶段 2/3：一致性自检 + 定向修正闭环（记录历史最优防发散——方案 §11）
+        best: GenerationResult = output
         best_report = None
         for rnd in range(req.fusion.max_refine_rounds + 1):
-            state.status = TaskStatus.comparing
+            state.status = TaskStatus.verifying
             state.round = rnd
-            state.progress = min(0.6 + rnd * 0.15, 0.95)
+            state.progress = min(0.55 + rnd * 0.15, 0.95)
             report = await loop.run_in_executor(
-                None, compare, image_result, text_result, constraints, req.fusion
+                None, compare, output, reference, constraints, req.fusion
             )
             state.diff_report = report
             await store.update(state)
 
             if best_report is None or report.overall >= best_report.overall:
-                best, best_report = image_result, report
+                best, best_report = output, report
 
             if report.passed or not report.actions or rnd >= req.fusion.max_refine_rounds:
                 break
@@ -121,11 +119,11 @@ async def run_generation(task_id: str, req: GenerationRequest) -> None:
                     break
                 focus_actions = _apply_decision(decision, report.actions)
 
-            # 阶段 D：定向修正（以图生 3D 为准，纹理按文字约束重绘）
+            # 定向修正：提高对应维度的文字引导后局部重生成 / 重绘
             state.status = TaskStatus.refining
             await store.update(state)
-            image_result = await _refine(
-                adapter, image_result, text_result, constraints, focus_actions
+            output = await _refine(
+                adapter, output, reference, constraints, focus_actions
             )
 
         # 输出历史最优结果
@@ -140,8 +138,10 @@ async def run_generation(task_id: str, req: GenerationRequest) -> None:
             textures=[],
             final_diff_report=best_report,
             provenance={
+                "mode": "joint_image_text",
                 "rounds": state.round,
                 "strategy": req.fusion.strategy.value,
+                "guidance": guidance.model_dump(),
                 "prompt": req.prompt,
                 "constraints": constraints.__dict__,
             },

@@ -92,9 +92,12 @@ export TO3D_ADAPTER=http
 export TO3D_HUNYUAN_ENDPOINT=https://your-hunyuan3d-service
 ```
 
-接口与 Mock 完全一致，编排 / 自检 / 前端均无需改动。完整接入与**图文联合条件
-的训练/adapter 方案**见 [`docs/接入混元3D与联合条件方案.md`](docs/接入混元3D与联合条件方案.md)，
-端点实现见 [`backend/app/adapters/http.py`](backend/app/adapters/http.py)。
+接口与 Mock 完全一致，编排 / 自检 / 前端均无需改动。
+
+- **可直接运行的桥接服务**（把官方 Hunyuan3D-2 包装成本项目接口）：
+  [`serving/`](serving/README.md) —— 含安装混元、下载权重、启动、连接主项目的完整步骤。
+- **图文联合条件的训练/adapter 方案**：
+  [`docs/接入混元3D与联合条件方案.md`](docs/接入混元3D与联合条件方案.md)。
 
 ## API 摘要
 

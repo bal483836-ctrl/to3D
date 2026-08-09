@@ -50,6 +50,12 @@ class HttpHunyuan3DAdapter(Hunyuan3DAdapter):
         raise ValueError("服务未返回 mesh")
 
     @staticmethod
+    def _mesh_to_b64(mesh: trimesh.Trimesh) -> str:
+        buf = io.BytesIO()
+        mesh.export(buf, file_type="glb")
+        return base64.b64encode(buf.getvalue()).decode()
+
+    @staticmethod
     def _texture(payload: dict) -> TextureDescriptor:
         t = payload.get("texture", {})
         return TextureDescriptor(
@@ -95,7 +101,11 @@ class HttpHunyuan3DAdapter(Hunyuan3DAdapter):
     def refine_geometry(self, result, focus, reference, constraints) -> GenerationResult:
         resp = self._client.post(
             f"{self.endpoint}/refine",
-            json={"focus": focus, "prompt": constraints.raw},
+            json={
+                "glb_base64": self._mesh_to_b64(result.mesh),
+                "focus": focus,
+                "prompt": constraints.raw,
+            },
         )
         resp.raise_for_status()
         data = resp.json()
@@ -109,12 +119,18 @@ class HttpHunyuan3DAdapter(Hunyuan3DAdapter):
     def repaint(self, result, focus, constraints) -> GenerationResult:
         resp = self._client.post(
             f"{self.endpoint}/repaint",
-            json={"focus": focus, "prompt": constraints.raw},
+            json={
+                "glb_base64": self._mesh_to_b64(result.mesh),
+                "focus": focus,
+                "prompt": constraints.raw,
+            },
         )
         resp.raise_for_status()
         data = resp.json()
+        # 服务可回传重绘后的带纹理网格；无则沿用原网格
+        mesh = self._load_mesh(data) if ("glb_base64" in data or "mesh_url" in data) else result.mesh
         return GenerationResult(
-            mesh=result.mesh,
+            mesh=mesh,
             texture=self._texture(data),
             source=result.source,
             provided_views=result.provided_views,

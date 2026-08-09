@@ -51,40 +51,50 @@ frontend/
   vendor/                        # 本地 three.js（离线可运行）
 ```
 
-## 本地运行
+## 快速开始
 
+### 方式一：Docker（推荐，一条命令）
 ```bash
-python3 -m venv .venv && source .venv/bin/activate
-pip install -r backend/requirements-dev.txt
-
-# 启动（默认使用 Mock 适配器，无需 GPU）
-cd backend && uvicorn app.main:app --reload --port 8000
+docker compose up --build
 # 打开 http://127.0.0.1:8000
 ```
 
-上传至少 2 张图片（正图必填），填写文字描述，点「立即生成」。可观察比对报告在
-修正后从「待修正」收敛到「已一致」，并在右侧预览生成的 3D 模型。
+### 方式二：本地（Make / 脚本）
+```bash
+make install && make dev     # 或直接 ./scripts/dev.sh
+# 打开 http://127.0.0.1:8000
+```
+
+上传至少 2 张图片（正图必填），填写文字描述，选模态引导权重，点「立即生成」。
+可观察进度 `图文联合生成 → 一致性自检 → 定向修正 → 完成`，报告从「待修正」收敛到
+「已一致」，并在右侧预览生成的 3D 模型。
+
+配置（复制 `.env.example` 为 `.env` 按需改）：`TO3D_ADAPTER`（mock/http）、
+`TO3D_HUNYUAN_ENDPOINT`、`TO3D_OUTPUT_DIR`。
 
 ## 测试
 
 ```bash
-cd backend && python -m pytest -q      # 10 passed
+make test        # 或 cd backend && python -m pytest -q   → 11 passed
 ```
 
-覆盖：中文约束抽取、网格底部/比例的真实几何测量、比对偏差判定与冲突仲裁、
-修正闭环收敛、REST + 产物下载端到端。
+覆盖：中文约束抽取、网格底部/比例的真实几何测量、自检偏差判定与冲突仲裁、
+图文联合生成与修正闭环收敛、REST + 产物下载端到端。CI 见 `.github/workflows/ci.yml`
+（测试 + Docker 构建冒烟）。
 
 ## 接入真实混元 3D 服务
 
-实现并部署 Hunyuan3D 推理服务（DiT + MV + Paint），暴露约定端点，然后：
+实现并部署 Hunyuan3D 推理服务（条件编码 + DiT + Paint，图文联合条件生成），
+暴露约定端点，然后：
 
 ```bash
 export TO3D_ADAPTER=http
 export TO3D_HUNYUAN_ENDPOINT=https://your-hunyuan3d-service
 ```
 
-约定端点见 [`backend/app/adapters/http.py`](backend/app/adapters/http.py)。
-接口与 Mock 完全一致，编排 / 比对 / 前端均无需改动。
+接口与 Mock 完全一致，编排 / 自检 / 前端均无需改动。完整接入与**图文联合条件
+的训练/adapter 方案**见 [`docs/接入混元3D与联合条件方案.md`](docs/接入混元3D与联合条件方案.md)，
+端点实现见 [`backend/app/adapters/http.py`](backend/app/adapters/http.py)。
 
 ## API 摘要
 

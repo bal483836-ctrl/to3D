@@ -14,6 +14,7 @@ import trimesh
 
 from app.adapters.base import GenerationResult, Hunyuan3DAdapter
 from app.adapters.mock import MockHunyuan3DAdapter
+from app.config import settings
 from app.core import preprocess
 from app.core.comparison import compare
 from app.models.schemas import (
@@ -37,15 +38,17 @@ _ACTION_FOCUS = {
     "refine_proportion": "height",
 }
 
-_OUTPUT_DIR = os.environ.get("TO3D_OUTPUT_DIR", "/tmp/to3d_outputs")
+_OUTPUT_DIR = settings.output_dir
 
 
 def get_adapter() -> Hunyuan3DAdapter:
-    """选择适配器。设置 TO3D_ADAPTER=http 可接入真实服务（需实现 http 适配器）。"""
-    if os.environ.get("TO3D_ADAPTER") == "http":
+    """选择适配器。设置 TO3D_ADAPTER=http 可接入真实混元 3D 服务。"""
+    if settings.adapter == "http":
         from app.adapters.http import HttpHunyuan3DAdapter
 
-        return HttpHunyuan3DAdapter(os.environ["TO3D_HUNYUAN_ENDPOINT"])
+        if not settings.hunyuan_endpoint:
+            raise RuntimeError("TO3D_ADAPTER=http 需同时设置 TO3D_HUNYUAN_ENDPOINT")
+        return HttpHunyuan3DAdapter(settings.hunyuan_endpoint, settings.request_timeout)
     return MockHunyuan3DAdapter()
 
 

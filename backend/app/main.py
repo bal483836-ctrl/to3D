@@ -30,7 +30,9 @@ app.add_middleware(
 
 @app.get("/api/health")
 async def health() -> dict:
-    return {"status": "ok", "adapter": os.environ.get("TO3D_ADAPTER", "mock")}
+    from app.config import settings
+
+    return {"status": "ok", "adapter": settings.adapter}
 
 
 # 保持后台任务的强引用，防止被 GC 中途回收

@@ -1,0 +1,11 @@
+.git
+.venv
+scratchpad
+**/__pycache__
+*.pyc
+.pytest_cache
+node_modules
+/tmp
+to3d_outputs
+*.glb
+*.obj

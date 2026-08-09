@@ -1,0 +1,19 @@
+services:
+  to3d:
+    build:
+      context: .
+      dockerfile: backend/Dockerfile
+    image: to3d:latest
+    ports:
+      - "8000:8000"
+    environment:
+      # mock(默认,无GPU) 或 http(接真实混元3D服务)
+      TO3D_ADAPTER: ${TO3D_ADAPTER:-mock}
+      TO3D_HUNYUAN_ENDPOINT: ${TO3D_HUNYUAN_ENDPOINT:-}
+      TO3D_OUTPUT_DIR: /data/outputs
+    volumes:
+      - to3d_outputs:/data/outputs
+    restart: unless-stopped
+
+volumes:
+  to3d_outputs:

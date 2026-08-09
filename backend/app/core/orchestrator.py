@@ -1,0 +1,185 @@
+"""任务编排：双通道生成 → 比对 → 修正闭环（方案 §4 / §9）。
+
+DAG：通道 A(图生3D) 与 通道 B(文生3D) 并行 → 汇聚比对 → 有界修正循环。
+无 GPU 时用 MockHunyuan3DAdapter，全链路可跑、可收敛。
+"""
+from __future__ import annotations
+
+import asyncio
+import os
+import uuid
+
+import trimesh
+
+from app.adapters.base import GenerationResult, Hunyuan3DAdapter
+from app.adapters.mock import MockHunyuan3DAdapter
+from app.core import preprocess
+from app.core.comparison import compare
+from app.models.schemas import (
+    DecisionAction,
+    Dimension,
+    GenerationRequest,
+    ModelOutputs,
+    TaskState,
+    TaskStatus,
+)
+from app.store import store
+
+# 修正动作 → 维度归类
+_GEOMETRY_ACTIONS = {"refine_bottom", "refine_shape", "refine_proportion"}
+_TEXTURE_ACTIONS = {"repaint_pattern", "adjust_material"}
+_ACTION_FOCUS = {
+    "repaint_pattern": "pattern",
+    "adjust_material": "material",
+    "refine_bottom": "bottom",
+    "refine_shape": "shape",
+    "refine_proportion": "height",
+}
+
+_OUTPUT_DIR = os.environ.get("TO3D_OUTPUT_DIR", "/tmp/to3d_outputs")
+
+
+def get_adapter() -> Hunyuan3DAdapter:
+    """选择适配器。设置 TO3D_ADAPTER=http 可接入真实服务（需实现 http 适配器）。"""
+    if os.environ.get("TO3D_ADAPTER") == "http":
+        from app.adapters.http import HttpHunyuan3DAdapter
+
+        return HttpHunyuan3DAdapter(os.environ["TO3D_HUNYUAN_ENDPOINT"])
+    return MockHunyuan3DAdapter()
+
+
+def _export(mesh: trimesh.Trimesh, task_id: str, tag: str) -> dict:
+    os.makedirs(_OUTPUT_DIR, exist_ok=True)
+    base = os.path.join(_OUTPUT_DIR, f"{task_id}_{tag}")
+    glb, obj = base + ".glb", base + ".obj"
+    mesh.export(glb)
+    mesh.export(obj)
+    return {"glb": glb, "obj": obj}
+
+
+def new_task_id() -> str:
+    return "gen_" + uuid.uuid4().hex[:12]
+
+
+async def run_generation(task_id: str, req: GenerationRequest) -> None:
+    """执行完整生成流程。异常时置为 failed。"""
+    adapter = get_adapter()
+    state = store.get(task_id)
+    assert state is not None
+    try:
+        # 阶段 0：预处理 + 文字约束抽取
+        state.status = TaskStatus.preprocessing
+        state.progress = 0.05
+        await store.update(state)
+        constraints = preprocess.extract_constraints(req.prompt)
+        preprocess.validate_images(req.images)
+
+        # 阶段 A / B：并行执行（无依赖）
+        state.status = TaskStatus.image3d
+        state.progress = 0.15
+        await store.update(state)
+
+        loop = asyncio.get_running_loop()
+        a_fut = loop.run_in_executor(
+            None, adapter.image_to_3d, req.images, req.prompt, constraints
+        )
+        b_fut = loop.run_in_executor(
+            None, adapter.text_to_3d, req.prompt, constraints
+        )
+        image_result, text_result = await asyncio.gather(a_fut, b_fut)
+
+        state.status = TaskStatus.text3d
+        state.progress = 0.45
+        await store.update(state)
+
+        # 修正闭环（记录历史最优，防修正发散——方案 §11）
+        best: GenerationResult = image_result
+        best_report = None
+        for rnd in range(req.fusion.max_refine_rounds + 1):
+            state.status = TaskStatus.comparing
+            state.round = rnd
+            state.progress = min(0.6 + rnd * 0.15, 0.95)
+            report = await loop.run_in_executor(
+                None, compare, image_result, text_result, constraints, req.fusion
+            )
+            state.diff_report = report
+            await store.update(state)
+
+            if best_report is None or report.overall >= best_report.overall:
+                best, best_report = image_result, report
+
+            if report.passed or not report.actions or rnd >= req.fusion.max_refine_rounds:
+                break
+
+            # 人在环：暂停等待用户决策（方案 §4.5 / §7.3）
+            focus_actions = report.actions
+            if req.human_in_loop:
+                state.status = TaskStatus.awaiting_user
+                await store.update(state)
+                decision = await store.wait_decision(task_id)
+                if decision.action == DecisionAction.reject_keep_A:
+                    break
+                focus_actions = _apply_decision(decision, report.actions)
+
+            # 阶段 D：定向修正（以图生 3D 为准，纹理按文字约束重绘）
+            state.status = TaskStatus.refining
+            await store.update(state)
+            image_result = await _refine(
+                adapter, image_result, text_result, constraints, focus_actions
+            )
+
+        # 输出历史最优结果
+        state.diff_report = best_report
+        files = _export(best.mesh, task_id, "final")
+        state.status = TaskStatus.done
+        state.progress = 1.0
+        state.preview_url = f"/api/v1/generation/{task_id}/mesh"
+        state.outputs = ModelOutputs(
+            glb=files["glb"],
+            obj=files["obj"],
+            textures=[],
+            final_diff_report=best_report,
+            provenance={
+                "rounds": state.round,
+                "strategy": req.fusion.strategy.value,
+                "prompt": req.prompt,
+                "constraints": constraints.__dict__,
+            },
+        )
+        await store.update(state)
+    except Exception as exc:  # noqa: BLE001 - 顶层兜底，写入错误状态
+        state.status = TaskStatus.failed
+        state.error = f"{type(exc).__name__}: {exc}"
+        await store.update(state)
+        raise
+
+
+def _apply_decision(decision, actions: list[str]) -> list[str]:
+    if decision.action == DecisionAction.accept_all:
+        return actions
+    if decision.action == DecisionAction.accept_partial:
+        keep = {d.value for d in decision.dimensions}
+        return [a for a in actions if _ACTION_FOCUS.get(a) in keep]
+    return actions
+
+
+async def _refine(
+    adapter: Hunyuan3DAdapter,
+    image_result: GenerationResult,
+    text_result: GenerationResult,
+    constraints,
+    actions: list[str],
+) -> GenerationResult:
+    loop = asyncio.get_running_loop()
+    geom_focus = [_ACTION_FOCUS[a] for a in actions if a in _GEOMETRY_ACTIONS]
+    tex_focus = [_ACTION_FOCUS[a] for a in actions if a in _TEXTURE_ACTIONS]
+    result = image_result
+    if geom_focus:
+        result = await loop.run_in_executor(
+            None, adapter.refine_geometry, result, geom_focus, text_result, constraints
+        )
+    if tex_focus:
+        result = await loop.run_in_executor(
+            None, adapter.repaint, result, tex_focus, constraints
+        )
+    return result

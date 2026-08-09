@@ -1,1 +1,7 @@
 scratchpad/
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+node_modules/
+to3d_outputs/

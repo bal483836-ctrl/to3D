@@ -1,0 +1,76 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>图/文双通道 3D 生成</title>
+  <link rel="stylesheet" href="./styles.css" />
+  <script type="importmap">
+  { "imports": { "three": "./vendor/three.module.min.js" } }
+  </script>
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand"><span class="logo">◉</span> 图/文生 3D</div>
+    <div class="sub">多图 + 文字 · 双通道生成 · 一致性比对修正</div>
+  </header>
+
+  <main class="layout">
+    <!-- 左侧：输入面板 -->
+    <section class="panel">
+      <div class="seg" id="modeSeg">
+        <span data-v="text">文生3D</span>
+        <span data-v="image" class="on">图生3D</span>
+      </div>
+
+      <label class="lbl"><span class="star">★</span> 文字描述（与图片共同驱动）</label>
+      <textarea id="prompt" rows="3" placeholder="例如：青花瓷花瓶，细长颈，圈足，缠枝莲纹，釉面高光"></textarea>
+      <div class="examples">
+        <button class="ex">青花瓷花瓶，细长颈，圈足，缠枝莲纹，釉面高光</button>
+        <button class="ex">金属机器人摆件，矮胖，平底，对称，磨砂哑光</button>
+      </div>
+
+      <label class="lbl">融合策略</label>
+      <div class="strat" id="strat">
+        <label class="opt on"><input type="radio" name="strategy" value="image_primary" checked/> 以图为主</label>
+        <label class="opt"><input type="radio" name="strategy" value="balanced"/> 图文均衡</label>
+        <label class="opt"><input type="radio" name="strategy" value="text_correct"/> 以文校正</label>
+      </div>
+
+      <div class="grid2">
+        <div>
+          <label class="lbl">一致性阈值 <b id="thVal">0.80</b></label>
+          <input type="range" id="threshold" min="0.5" max="0.95" step="0.05" value="0.8"/>
+        </div>
+        <div>
+          <label class="lbl">最大修正轮数</label>
+          <select id="maxRounds"><option>1</option><option selected>2</option><option>3</option></select>
+        </div>
+      </div>
+
+      <label class="opt inline"><input type="checkbox" id="hil"/> 人在环（每轮修正前暂停确认）</label>
+
+      <button id="genBtn" class="gen">✦ 立即生成</button>
+      <div id="err" class="err"></div>
+    </section>
+
+    <!-- 中间：多视图上传 -->
+    <section class="panel center">
+      <div class="phead">添加多视图（Min 2，Max 8）<span id="imgCount">0 / 8</span></div>
+      <div class="viewgrid" id="viewgrid"></div>
+      <p class="hint">点击槽位选择图片。<span class="req-note">正图为必填</span>。未上传的视角，其对应维度将改由文字约束校正。</p>
+    </section>
+
+    <!-- 右侧：进度 + 报告 + 预览 -->
+    <section class="panel right">
+      <div id="stages" class="stages"></div>
+      <div id="viewerWrap" class="viewer" hidden><canvas id="viewer"></canvas></div>
+      <div id="report" class="report" hidden></div>
+      <div id="decision" class="decision" hidden></div>
+      <div id="downloads" class="downloads" hidden></div>
+    </section>
+  </main>
+
+  <script type="module" src="./app.js"></script>
+</body>
+</html>

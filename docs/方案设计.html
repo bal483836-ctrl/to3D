@@ -1,0 +1,359 @@
+<title>图文双通道 3D 生成 · 方案设计</title>
+<style>
+  :root{
+    --bg:#f5f6f8; --surface:#ffffff; --surface-2:#eef0f4;
+    --ink:#11161d; --muted:#5a6472; --faint:#8a94a3;
+    --line:#dde1e8; --line-strong:#c6ccd6;
+    --img:#3b6ff5;      /* 图通道 */
+    --img-soft:#e3ebff;
+    --txt:#d98319;      /* 文通道 */
+    --txt-soft:#fbeed6;
+    --merge:#12a594;    /* 合成/输出 */
+    --merge-soft:#d4f0ea;
+    --good:#12a594; --warn:#d98319; --bad:#e05a5a;
+    --shadow:0 1px 2px rgba(16,22,29,.04),0 8px 28px rgba(16,22,29,.06);
+    --mono:ui-monospace,"SF Mono",Menlo,Consolas,monospace;
+    --sans:-apple-system,BlinkMacSystemFont,"PingFang SC","Microsoft YaHei","Segoe UI",Roboto,sans-serif;
+  }
+  @media (prefers-color-scheme:dark){
+    :root:not([data-theme="light"]){
+      --bg:#0c0f14; --surface:#141922; --surface-2:#1b212c;
+      --ink:#eef1f6; --muted:#9aa5b4; --faint:#6b7686;
+      --line:#242c38; --line-strong:#333d4d;
+      --img:#6f9bff; --img-soft:#1a2540;
+      --txt:#e6a44e; --txt-soft:#37280f;
+      --merge:#2dd4bf; --merge-soft:#0f302c;
+      --good:#2dd4bf; --warn:#e6a44e; --bad:#f07a7a;
+      --shadow:0 1px 2px rgba(0,0,0,.3),0 12px 32px rgba(0,0,0,.35);
+    }
+  }
+  :root[data-theme="dark"]{
+    --bg:#0c0f14; --surface:#141922; --surface-2:#1b212c;
+    --ink:#eef1f6; --muted:#9aa5b4; --faint:#6b7686;
+    --line:#242c38; --line-strong:#333d4d;
+    --img:#6f9bff; --img-soft:#1a2540;
+    --txt:#e6a44e; --txt-soft:#37280f;
+    --merge:#2dd4bf; --merge-soft:#0f302c;
+    --good:#2dd4bf; --warn:#e6a44e; --bad:#f07a7a;
+    --shadow:0 1px 2px rgba(0,0,0,.3),0 12px 32px rgba(0,0,0,.35);
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--ink);font-family:var(--sans);
+    line-height:1.65;-webkit-font-smoothing:antialiased;font-size:16px}
+  .wrap{max-width:1000px;margin:0 auto;padding:0 24px}
+  h1,h2,h3{text-wrap:balance;line-height:1.25;letter-spacing:-.01em}
+  a{color:var(--img)}
+  .eyebrow{font-family:var(--mono);font-size:12px;letter-spacing:.14em;
+    text-transform:uppercase;color:var(--faint);font-weight:600}
+
+  /* hero */
+  header{padding:76px 0 48px;border-bottom:1px solid var(--line)}
+  .badge{display:inline-flex;gap:8px;align-items:center;font-family:var(--mono);
+    font-size:12px;color:var(--muted);border:1px solid var(--line-strong);
+    border-radius:999px;padding:5px 12px;margin-bottom:26px}
+  .dot{width:7px;height:7px;border-radius:50%;background:var(--merge)}
+  h1{font-size:clamp(30px,5vw,50px);font-weight:750;margin:0 0 20px}
+  .lede{font-size:clamp(17px,2.2vw,20px);color:var(--muted);max-width:60ch;margin:0}
+  .formula{display:flex;flex-wrap:wrap;align-items:center;gap:12px;margin-top:34px;
+    font-family:var(--mono);font-size:14px}
+  .tok{padding:8px 14px;border-radius:10px;font-weight:600;border:1px solid transparent}
+  .tok.img{background:var(--img-soft);color:var(--img);border-color:var(--img)}
+  .tok.txt{background:var(--txt-soft);color:var(--txt);border-color:var(--txt)}
+  .tok.out{background:var(--merge-soft);color:var(--merge);border-color:var(--merge)}
+  .op{color:var(--faint);font-size:18px}
+
+  section{padding:56px 0;border-bottom:1px solid var(--line)}
+  .sec-head{margin-bottom:34px}
+  .sec-head h2{font-size:clamp(22px,3vw,30px);font-weight:700;margin:10px 0 8px}
+  .sec-head p{color:var(--muted);margin:0;max-width:62ch}
+
+  /* pipeline */
+  .channels{display:grid;grid-template-columns:1fr 1fr;gap:18px}
+  @media(max-width:640px){.channels{grid-template-columns:1fr}}
+  .chan{background:var(--surface);border:1px solid var(--line);border-radius:16px;
+    padding:22px;box-shadow:var(--shadow);position:relative;overflow:hidden}
+  .chan::before{content:"";position:absolute;inset:0 auto 0 0;width:4px}
+  .chan.img::before{background:var(--img)}
+  .chan.txt::before{background:var(--txt)}
+  .chan h3{margin:0 0 4px;font-size:17px}
+  .chan .role{font-family:var(--mono);font-size:11px;letter-spacing:.08em;
+    text-transform:uppercase;font-weight:600}
+  .chan.img .role{color:var(--img)}
+  .chan.txt .role{color:var(--txt)}
+  .chan p{color:var(--muted);font-size:14px;margin:12px 0 0}
+  .chan .model{font-family:var(--mono);font-size:12px;color:var(--ink);
+    background:var(--surface-2);border-radius:7px;padding:3px 8px;display:inline-block;margin-top:14px}
+
+  .converge{display:flex;justify-content:center;padding:8px 0;color:var(--faint);font-size:22px}
+  .node{background:var(--surface);border:1px solid var(--line);border-radius:16px;
+    padding:24px;box-shadow:var(--shadow)}
+  .node.judge{border-color:var(--merge);border-width:1.5px}
+  .node h3{margin:0 0 6px;font-size:18px;display:flex;align-items:center;gap:10px}
+  .node h3 .pin{font-family:var(--mono);font-size:11px;background:var(--merge-soft);
+    color:var(--merge);padding:2px 8px;border-radius:6px;font-weight:700}
+  .dims{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-top:16px}
+  @media(max-width:560px){.dims{grid-template-columns:repeat(2,1fr)}}
+  .dim{background:var(--surface-2);border-radius:10px;padding:12px}
+  .dim .zh{font-weight:650;font-size:14px}
+  .dim .en{font-family:var(--mono);font-size:10px;color:var(--faint);text-transform:uppercase;letter-spacing:.05em}
+
+  .loop{display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-top:16px}
+  @media(max-width:560px){.loop{grid-template-columns:1fr}}
+  .branch{border:1px dashed var(--line-strong);border-radius:12px;padding:16px}
+  .branch.ok{border-color:var(--good)}
+  .branch.fix{border-color:var(--warn)}
+  .branch .lab{font-family:var(--mono);font-size:11px;font-weight:700;letter-spacing:.06em;text-transform:uppercase}
+  .branch.ok .lab{color:var(--good)}
+  .branch.fix .lab{color:var(--warn)}
+  .branch p{margin:8px 0 0;font-size:13.5px;color:var(--muted)}
+
+  /* six dims report */
+  .report{background:var(--surface);border:1px solid var(--line);border-radius:16px;
+    padding:26px;box-shadow:var(--shadow)}
+  .rowlist{display:flex;flex-direction:column;gap:14px}
+  .row{display:grid;grid-template-columns:120px 1fr 52px;gap:16px;align-items:center}
+  @media(max-width:560px){.row{grid-template-columns:92px 1fr 44px}}
+  .row .name{font-weight:650;font-size:14px}
+  .row .name span{display:block;font-family:var(--mono);font-size:10px;color:var(--faint);
+    font-weight:500;text-transform:uppercase;letter-spacing:.05em}
+  .bar{height:9px;border-radius:999px;background:var(--surface-2);overflow:hidden}
+  .bar i{display:block;height:100%;border-radius:999px}
+  .val{font-family:var(--mono);font-size:14px;font-weight:600;text-align:right;font-variant-numeric:tabular-nums}
+  .flag{font-family:var(--mono);font-size:11px;padding:2px 7px;border-radius:6px;font-weight:700}
+  .flag.pass{background:var(--merge-soft);color:var(--good)}
+  .flag.fail{background:color-mix(in srgb,var(--bad) 16%,transparent);color:var(--bad)}
+  .action-note{margin-top:20px;padding-top:18px;border-top:1px solid var(--line);
+    font-size:13.5px;color:var(--muted);display:flex;gap:10px;flex-wrap:wrap;align-items:center}
+  .chip{font-family:var(--mono);font-size:12px;background:var(--txt-soft);color:var(--txt);
+    padding:3px 9px;border-radius:7px;font-weight:600}
+
+  /* UI mock */
+  .mock{display:grid;grid-template-columns:300px 1fr;gap:0;background:var(--surface);
+    border:1px solid var(--line);border-radius:16px;overflow:hidden;box-shadow:var(--shadow)}
+  @media(max-width:720px){.mock{grid-template-columns:1fr}}
+  .panel-l{padding:22px;border-right:1px solid var(--line);background:var(--surface)}
+  @media(max-width:720px){.panel-l{border-right:none;border-bottom:1px solid var(--line)}}
+  .seg{display:flex;background:var(--surface-2);border-radius:9px;padding:3px;margin-bottom:16px}
+  .seg span{flex:1;text-align:center;font-size:13px;padding:6px;border-radius:7px;color:var(--muted)}
+  .seg span.on{background:var(--surface);color:var(--ink);font-weight:600;box-shadow:0 1px 2px rgba(0,0,0,.08)}
+  .field-label{font-size:12px;font-weight:650;color:var(--muted);margin:16px 0 7px;display:flex;align-items:center;gap:6px}
+  .star{color:var(--txt)}
+  .textbox{border:1.5px solid var(--txt);background:var(--txt-soft);border-radius:10px;
+    padding:11px 12px;font-size:13.5px;color:var(--ink);min-height:74px}
+  .textbox .ph{color:var(--muted)}
+  .tags{display:flex;flex-wrap:wrap;gap:6px;margin-top:9px}
+  .tags b{font-family:var(--mono);font-weight:600;font-size:11px;background:var(--surface-2);
+    color:var(--muted);padding:3px 8px;border-radius:6px}
+  .strat{display:flex;flex-direction:column;gap:7px;margin-top:8px}
+  .opt{display:flex;align-items:center;gap:8px;font-size:13px;color:var(--muted)}
+  .radio{width:14px;height:14px;border-radius:50%;border:1.5px solid var(--line-strong)}
+  .opt.on{color:var(--ink);font-weight:600}
+  .opt.on .radio{border-color:var(--merge);background:radial-gradient(circle,var(--merge) 44%,transparent 47%)}
+  .gen{margin-top:20px;background:linear-gradient(90deg,var(--img),var(--merge));color:#fff;
+    text-align:center;padding:12px;border-radius:11px;font-weight:700;font-size:15px}
+  .panel-r{padding:22px;background:var(--surface-2)}
+  .panel-r h4{margin:0 0 16px;font-size:14px;color:var(--muted);font-weight:600}
+  .grid8{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;max-width:340px;margin:0 auto}
+  .slot{aspect-ratio:1;border:1.5px dashed var(--line-strong);border-radius:11px;
+    display:flex;flex-direction:column;align-items:center;justify-content:center;gap:6px;
+    font-size:11px;color:var(--faint);background:var(--surface);text-align:center}
+  .slot.core{border-style:solid;border-color:var(--img);background:var(--img-soft);color:var(--img);font-weight:650}
+  .slot.req{border-color:var(--txt);color:var(--txt)}
+  .slot .ic{font-size:18px;opacity:.7}
+
+  /* stack / roadmap */
+  .cols{display:grid;grid-template-columns:1fr 1fr;gap:18px}
+  @media(max-width:720px){.cols{grid-template-columns:1fr}}
+  .card{background:var(--surface);border:1px solid var(--line);border-radius:14px;padding:20px;box-shadow:var(--shadow)}
+  .card h3{margin:0 0 14px;font-size:15px}
+  .stack-row{display:flex;justify-content:space-between;gap:12px;padding:9px 0;border-bottom:1px solid var(--line);font-size:13.5px}
+  .stack-row:last-child{border-bottom:none}
+  .stack-row .k{color:var(--muted)}
+  .stack-row .v{font-family:var(--mono);font-size:12px;text-align:right;color:var(--ink)}
+  .mile{display:flex;gap:14px;padding:12px 0;border-bottom:1px solid var(--line)}
+  .mile:last-child{border-bottom:none}
+  .mile .m{font-family:var(--mono);font-weight:700;font-size:13px;color:var(--merge);flex-shrink:0;width:34px}
+  .mile .t{font-size:13.5px}
+  .mile .t b{display:block;font-family:var(--sans);color:var(--ink);font-weight:650;margin-bottom:2px}
+  .mile .t span{color:var(--muted)}
+
+  footer{padding:40px 0 64px;color:var(--faint);font-size:13px}
+  footer code{font-family:var(--mono);background:var(--surface-2);padding:2px 6px;border-radius:5px;color:var(--muted)}
+</style>
+
+<header>
+  <div class="wrap">
+    <div class="badge"><span class="dot"></span> 基于混元 3D · Hunyuan3D</div>
+    <h1>一份 3D 模型，由多图与文字共同生成</h1>
+    <p class="lede">图片负责还原看得见的细节，文字负责校正全局语义。两条生成通道互为裁判，在六个维度上比对差异、定向修正，直到一致。</p>
+    <div class="formula">
+      <span class="tok img">多视图 (2–8)</span>
+      <span class="op">+</span>
+      <span class="tok txt">文字描述</span>
+      <span class="op">→</span>
+      <span class="tok out">单一收敛模型</span>
+    </div>
+  </div>
+</header>
+
+<section>
+  <div class="wrap">
+    <div class="sec-head">
+      <div class="eyebrow">核心机制</div>
+      <h2>双通道生成 · 比对 · 修正闭环</h2>
+      <p>图生 3D 产出主几何，文生 3D 作为语义标尺。比对引擎逐维打分，不一致则以图生 3D 为准定向修正，有界迭代收敛。</p>
+    </div>
+
+    <div class="channels">
+      <div class="chan img">
+        <div class="role">通道 A · 主几何</div>
+        <h3>图生 3D</h3>
+        <p>多张视图经多视图条件生成基础网格，再依输入图生成 PBR 纹理。最终交付以此为主体。</p>
+        <span class="model">Hunyuan3D-MV + Paint</span>
+      </div>
+      <div class="chan txt">
+        <div class="role">通道 B · 语义参照</div>
+        <h3>文生 3D</h3>
+        <p>文字 → 多视角参考图 → 三维化，作为"文字理想形态"。不直接交付，只用于比对与约束补强。</p>
+        <span class="model">Text → Image → 3D</span>
+      </div>
+    </div>
+
+    <div class="converge">↓ 汇聚 ↓</div>
+
+    <div class="node judge">
+      <h3>一致性比对引擎 <span class="pin">JUDGE</span></h3>
+      <p style="margin:0;color:var(--muted);font-size:14px">先做包围盒对齐 + ICP 配准与尺度归一化，再逐维度打分产出可解释差异报告。</p>
+      <div class="dims">
+        <div class="dim"><div class="zh">器型</div><div class="en">shape</div></div>
+        <div class="dim"><div class="zh">花纹</div><div class="en">pattern</div></div>
+        <div class="dim"><div class="zh">底部</div><div class="en">bottom</div></div>
+        <div class="dim"><div class="zh">高度</div><div class="en">height</div></div>
+        <div class="dim"><div class="zh">宽度</div><div class="en">width</div></div>
+        <div class="dim"><div class="zh">材质</div><div class="en">material</div></div>
+      </div>
+      <div class="loop">
+        <div class="branch ok">
+          <div class="lab">✓ 全维度达标</div>
+          <p>直接输出通道 A 模型，附最终差异报告与生成溯源。</p>
+        </div>
+        <div class="branch fix">
+          <div class="lab">↻ 存在偏差 · 修正</div>
+          <p>几何偏差→局部重跑图生 3D；纹理/材质偏差→注入文字约束重跑 Paint。回到比对，最多 N 轮。</p>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section>
+  <div class="wrap">
+    <div class="sec-head">
+      <div class="eyebrow">比对引擎</div>
+      <h2>六维一致性差异报告</h2>
+      <p>每维归一到 0–1 并与阈值比较；有对应视角图则以图为准，无图但文字明确则以文字校正。下方为一次比对示例。</p>
+    </div>
+    <div class="report">
+      <div class="rowlist">
+        <div class="row"><div class="name">器型<span>shape · Chamfer/IoU</span></div><div class="bar"><i style="width:90%;background:var(--good)"></i></div><div class="val">0.90</div></div>
+        <div class="row"><div class="name">花纹<span>pattern · CLIP/VQA</span></div><div class="bar"><i style="width:61%;background:var(--bad)"></i></div><div class="val">0.61</div></div>
+        <div class="row"><div class="name">底部<span>bottom · 底视分类</span></div><div class="bar"><i style="width:75%;background:var(--good)"></i></div><div class="val">0.75</div></div>
+        <div class="row"><div class="name">高度<span>height · 包围盒比例</span></div><div class="bar"><i style="width:95%;background:var(--good)"></i></div><div class="val">0.95</div></div>
+        <div class="row"><div class="name">宽度<span>width · 对称/比例</span></div><div class="bar"><i style="width:93%;background:var(--good)"></i></div><div class="val">0.93</div></div>
+        <div class="row"><div class="name">材质<span>material · PBR分析</span></div><div class="bar"><i style="width:58%;background:var(--bad)"></i></div><div class="val">0.58</div></div>
+      </div>
+      <div class="action-note">
+        <span class="flag fail">2 项未达标</span>
+        建议修正动作：
+        <span class="chip">repaint_pattern</span>
+        <span class="chip">adjust_material</span>
+        <span style="margin-left:auto;font-family:var(--mono);color:var(--ink)">overall&nbsp;0.82&nbsp;→&nbsp;阈值&nbsp;0.80</span>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section>
+  <div class="wrap">
+    <div class="sec-head">
+      <div class="eyebrow">交互设计</div>
+      <h2>多视图上传 + 文字输入</h2>
+      <p>在参考截图的八槽位多视图面板基础上，新增文字描述输入与融合策略，正图为必填。</p>
+    </div>
+    <div class="mock">
+      <div class="panel-l">
+        <div class="seg"><span>文生3D</span><span class="on">图生3D</span></div>
+        <div class="seg"><span>单张图片</span><span class="on">多张图片</span></div>
+
+        <div class="field-label"><span class="star">★</span> 文字描述（新增）</div>
+        <div class="textbox">青花瓷花瓶，细长颈，圈足，缠枝莲纹，釉面高光<span class="ph"> …</span></div>
+        <div class="tags"><b>材质·青花</b><b>器型·细长颈</b><b>底·圈足</b><b>纹样·缠枝莲</b></div>
+
+        <div class="field-label">融合策略（新增）</div>
+        <div class="strat">
+          <div class="opt on"><span class="radio"></span>以图为主</div>
+          <div class="opt"><span class="radio"></span>图文均衡</div>
+          <div class="opt"><span class="radio"></span>以文校正</div>
+        </div>
+
+        <div class="field-label">一致性阈值 0.80 · 最大修正轮数 2</div>
+
+        <div class="gen">✦ 立即生成</div>
+      </div>
+      <div class="panel-r">
+        <h4>添加多视图（Min 2，Max 8）</h4>
+        <div class="grid8">
+          <div class="slot"></div>
+          <div class="slot"><span class="ic">⬒</span>顶图</div>
+          <div class="slot"></div>
+          <div class="slot"><span class="ic">◱</span>左45°</div>
+          <div class="slot req"><span class="ic">▣</span>正图 *</div>
+          <div class="slot"><span class="ic">◲</span>右45°</div>
+          <div class="slot"><span class="ic">◧</span>左图</div>
+          <div class="slot core"><span class="ic">◉</span>预览</div>
+          <div class="slot"><span class="ic">◨</span>右图</div>
+          <div class="slot"></div>
+          <div class="slot"><span class="ic">▤</span>背图</div>
+          <div class="slot"></div>
+          <div class="slot"></div>
+          <div class="slot"><span class="ic">⬓</span>底图</div>
+          <div class="slot"></div>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section>
+  <div class="wrap">
+    <div class="sec-head">
+      <div class="eyebrow">工程实现</div>
+      <h2>技术栈与迭代路线</h2>
+      <p>通道 A / B 无依赖，可并行执行以压缩总时延；比对汇聚后进入有界修正循环。</p>
+    </div>
+    <div class="cols">
+      <div class="card">
+        <h3>技术栈</h3>
+        <div class="stack-row"><span class="k">前端 / 预览</span><span class="v">React · Three.js · ECharts</span></div>
+        <div class="stack-row"><span class="k">API / BFF</span><span class="v">FastAPI / NestJS</span></div>
+        <div class="stack-row"><span class="k">任务编排</span><span class="v">Temporal · DAG 状态机</span></div>
+        <div class="stack-row"><span class="k">推理</span><span class="v">Hunyuan3D DiT·MV·Paint</span></div>
+        <div class="stack-row"><span class="k">比对</span><span class="v">CLIP·DINO·VQA·Open3D</span></div>
+        <div class="stack-row"><span class="k">存储</span><span class="v">OSS · PostgreSQL · Redis</span></div>
+      </div>
+      <div class="card">
+        <h3>里程碑</h3>
+        <div class="mile"><div class="m">M1</div><div class="t"><b>打通闭环</b><span>图+文输入 · 三维几何比对 · 单轮修正 · 输出 glb</span></div></div>
+        <div class="mile"><div class="m">M2</div><div class="t"><b>全维度比对</b><span>补齐花纹/底部/材质 · 雷达图与证据 · 人在环</span></div></div>
+        <div class="mile"><div class="m">M3</div><div class="t"><b>修正智能化</b><span>局部重生成 · 冲突仲裁 · 按品类自动配权</span></div></div>
+        <div class="mile"><div class="m">M4</div><div class="t"><b>规模化</b><span>并行编排 · 缓存复用 · 成本时延优化 · 开放 API</span></div></div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<footer>
+  <div class="wrap">
+    完整方案（架构图、状态机、API 契约、风险对策）见仓库 <code>docs/方案设计.md</code>。核心创新：文字作为跨模态一致性裁判，把图与文两种模态的短板互相补齐。
+  </div>
+</footer>

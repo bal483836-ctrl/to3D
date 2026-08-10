@@ -17,6 +17,7 @@ from app.adapters.mock import MockHunyuan3DAdapter
 from app.config import settings
 from app.core import preprocess
 from app.core.comparison import compare
+from app.observability import logger, track_generation
 from app.models.schemas import (
     DecisionAction,
     Dimension,
@@ -65,11 +66,45 @@ def new_task_id() -> str:
     return "gen_" + uuid.uuid4().hex[:12]
 
 
+# 生成任务并发上限（GPU 通常 1~2）。绑定到运行中的事件循环，懒创建。
+_semaphore: asyncio.Semaphore | None = None
+
+
+def _get_semaphore() -> asyncio.Semaphore:
+    global _semaphore
+    if _semaphore is None:
+        _semaphore = asyncio.Semaphore(max(1, settings.max_concurrency))
+    return _semaphore
+
+
+async def _call(func, *args):
+    """把阻塞的适配器调用放线程池执行，带失败重试（网络抖动等）。"""
+    loop = asyncio.get_running_loop()
+    last: Exception | None = None
+    for attempt in range(settings.adapter_retries + 1):
+        try:
+            return await loop.run_in_executor(None, func, *args)
+        except Exception as e:  # noqa: BLE001 - 交由上层统一处理，先重试
+            last = e
+            if attempt < settings.adapter_retries:
+                await asyncio.sleep(2 ** attempt)
+                logger.warning("适配器调用失败重试 %d/%d: %s",
+                               attempt + 1, settings.adapter_retries, e)
+    raise last  # type: ignore[misc]
+
+
 async def run_generation(task_id: str, req: GenerationRequest) -> None:
-    """执行完整生成流程。异常时置为 failed。"""
+    """执行完整生成流程。受并发上限约束；异常时置为 failed。"""
     adapter = get_adapter()
     state = store.get(task_id)
     assert state is not None
+    # 超出并发上限时在此等待，期间状态保持 queued
+    async with _get_semaphore():
+        with track_generation():
+            await _run_generation_inner(task_id, req, adapter, state)
+
+
+async def _run_generation_inner(task_id, req, adapter, state) -> None:
     try:
         # 阶段 0：预处理 + 文字约束抽取
         state.status = TaskStatus.preprocessing
@@ -78,20 +113,14 @@ async def run_generation(task_id: str, req: GenerationRequest) -> None:
         constraints = preprocess.extract_constraints(req.prompt)
         preprocess.validate_images(req.images)
 
-        loop = asyncio.get_running_loop()
-
         # 阶段 1：图文联合条件生成（单次，一份模型）
         state.status = TaskStatus.generating
         state.progress = 0.2
         await store.update(state)
         guidance = req.fusion.guidance()
-        output = await loop.run_in_executor(
-            None, adapter.generate, req.images, req.prompt, constraints, guidance
-        )
+        output = await _call(adapter.generate, req.images, req.prompt, constraints, guidance)
         # 规格参照仅用于自检打分（不交付）
-        reference = await loop.run_in_executor(
-            None, adapter.build_reference, constraints
-        )
+        reference = await _call(adapter.build_reference, constraints)
 
         # 阶段 2/3：一致性自检 + 定向修正闭环（记录历史最优防发散——方案 §11）
         best: GenerationResult = output
@@ -100,9 +129,7 @@ async def run_generation(task_id: str, req: GenerationRequest) -> None:
             state.status = TaskStatus.verifying
             state.round = rnd
             state.progress = min(0.55 + rnd * 0.15, 0.95)
-            report = await loop.run_in_executor(
-                None, compare, output, reference, constraints, req.fusion
-            )
+            report = await _call(compare, output, reference, constraints, req.fusion)
             state.diff_report = report
             await store.update(state)
 
@@ -151,6 +178,7 @@ async def run_generation(task_id: str, req: GenerationRequest) -> None:
         )
         await store.update(state)
     except Exception as exc:  # noqa: BLE001 - 顶层兜底，写入错误状态
+        logger.exception("生成任务失败 task=%s", task_id)
         state.status = TaskStatus.failed
         state.error = f"{type(exc).__name__}: {exc}"
         await store.update(state)
@@ -173,16 +201,11 @@ async def _refine(
     constraints,
     actions: list[str],
 ) -> GenerationResult:
-    loop = asyncio.get_running_loop()
     geom_focus = [_ACTION_FOCUS[a] for a in actions if a in _GEOMETRY_ACTIONS]
     tex_focus = [_ACTION_FOCUS[a] for a in actions if a in _TEXTURE_ACTIONS]
     result = image_result
     if geom_focus:
-        result = await loop.run_in_executor(
-            None, adapter.refine_geometry, result, geom_focus, text_result, constraints
-        )
+        result = await _call(adapter.refine_geometry, result, geom_focus, text_result, constraints)
     if tex_focus:
-        result = await loop.run_in_executor(
-            None, adapter.repaint, result, tex_focus, constraints
-        )
+        result = await _call(adapter.repaint, result, tex_focus, constraints)
     return result

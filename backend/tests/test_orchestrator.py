@@ -3,6 +3,12 @@ from __future__ import annotations
 
 import time
 
+# 1x1 PNG 的 data URI，作为合法图片来源（通过安全校验）
+PX = (
+    "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0"
+    "lEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg=="
+)
+
 import pytest
 from fastapi.testclient import TestClient
 
@@ -87,8 +93,8 @@ def test_api_create_and_fetch():
             "/api/v1/generation",
             json={
                 "images": [
-                    {"view": "front", "url": "x", "required": True},
-                    {"view": "left45", "url": "x"},
+                    {"view": "front", "url": PX, "required": True},
+                    {"view": "left45", "url": PX},
                 ],
                 "prompt": "陶瓷花瓶，圈足，缠枝莲纹，釉面高光",
             },

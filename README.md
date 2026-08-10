@@ -99,15 +99,30 @@ export TO3D_HUNYUAN_ENDPOINT=https://your-hunyuan3d-service
 - **图文联合条件的训练/adapter 方案**：
   [`docs/接入混元3D与联合条件方案.md`](docs/接入混元3D与联合条件方案.md)。
 
+## 生产部署
+
+主服务(CPU) + 混元桥接(GPU) 两段式部署，完整清单见
+[`docs/生产部署.md`](docs/生产部署.md)。已内置的生产能力（均有测试）：
+
+- **安全**：可选 API Key 鉴权(REST + WS)、CORS 白名单、请求体/图片大小上限、
+  图片来源校验(防 SSRF/LFI，拒绝私网地址与本地文件)。
+- **健壮**：生成并发上限、适配器超时重试、产物 TTL 清理、优雅关闭。
+- **持久化**：SQLite 单机持久化(`TO3D_DB_URL=sqlite:///...`)，重启不丢结果。
+- **可观测**：结构化日志 + request-id、`/api/health`(存活)、`/api/ready`(就绪)、
+  `/metrics`(Prometheus)。
+
+配置见 [`.env.example`](.env.example)。多副本(PG+Redis+任务队列)接入方式见部署文档 §4。
+
 ## API 摘要
 
 | 方法 | 路径 | 说明 |
 |------|------|------|
-| POST | `/api/v1/generation` | 创建生成任务 |
-| GET  | `/api/v1/generation/{id}` | 查询任务状态与差异报告 |
-| POST | `/api/v1/generation/{id}/decision` | 人在环决策 |
-| GET  | `/api/v1/generation/{id}/mesh` | 下载 GLB |
-| WS   | `/ws/tasks/{id}` | 实时进度推送 |
+| POST | `/api/v1/generation` | 创建生成任务（鉴权） |
+| GET  | `/api/v1/generation/{id}` | 查询任务状态与差异报告（鉴权） |
+| POST | `/api/v1/generation/{id}/decision` | 人在环决策（鉴权） |
+| GET  | `/api/v1/generation/{id}/mesh` | 下载 GLB（鉴权） |
+| WS   | `/ws/tasks/{id}?token=` | 实时进度推送 |
+| GET  | `/api/health` · `/api/ready` · `/metrics` | 存活 / 就绪 / 指标 |
 
 ## 当前实现范围（M1 MVP）
 

@@ -86,14 +86,42 @@ def _rembg():
 
 
 # ---- 工具 -------------------------------------------------------------------
+ALLOW_LOCAL_FILE = os.getenv("HY3D_ALLOW_LOCAL_FILE", "0") in {"1", "true", "yes"}
+BLOCK_PRIVATE_IPS = os.getenv("HY3D_BLOCK_PRIVATE_IPS", "1") in {"1", "true", "yes"}
+
+
+def _assert_public_host(host: str) -> None:
+    import ipaddress
+    import socket
+
+    try:
+        infos = socket.getaddrinfo(host, None)
+    except socket.gaierror:
+        raise ValueError("主机名解析失败")
+    for info in infos:
+        addr = ipaddress.ip_address(info[4][0])
+        if (addr.is_private or addr.is_loopback or addr.is_link_local
+                or addr.is_reserved or addr.is_multicast or addr.is_unspecified):
+            raise ValueError("拒绝抓取私网/内网地址（SSRF 防护）")
+
+
 def _load_image(url: str) -> Image.Image:
+    """加载图片，内置 SSRF/LFI 防护（与主项目一致）。"""
     if url.startswith("data:"):
+        if not url.startswith("data:image/"):
+            raise ValueError("data URI 必须是 image 类型")
         b64 = url.split(",", 1)[1]
         return Image.open(io.BytesIO(base64.b64decode(b64))).convert("RGBA")
-    if url.startswith("http"):
+    if url.startswith(("http://", "https://")):
         import httpx
+        from urllib.parse import urlparse
 
+        host = urlparse(url).hostname or ""
+        if BLOCK_PRIVATE_IPS:
+            _assert_public_host(host)
         return Image.open(io.BytesIO(httpx.get(url, timeout=60).content)).convert("RGBA")
+    if not ALLOW_LOCAL_FILE:
+        raise ValueError("默认禁止本地文件作为图片来源（设 HY3D_ALLOW_LOCAL_FILE=1 解除）")
     return Image.open(url).convert("RGBA")
 
 

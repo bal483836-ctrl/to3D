@@ -4,15 +4,59 @@ from __future__ import annotations
 import os
 
 
+def _bool(name: str, default: bool) -> bool:
+    v = os.getenv(name)
+    if v is None:
+        return default
+    return v.strip().lower() in {"1", "true", "yes", "on"}
+
+
+def _int(name: str, default: int) -> int:
+    try:
+        return int(os.getenv(name, str(default)))
+    except ValueError:
+        return default
+
+
+def _list(name: str) -> list[str]:
+    raw = os.getenv(name, "").strip()
+    return [x.strip() for x in raw.split(",") if x.strip()] if raw else []
+
+
 class Settings:
-    # 适配器：mock（默认，无 GPU 可跑）或 http（接真实混元 3D 服务）
-    adapter: str = os.getenv("TO3D_ADAPTER", "mock")
-    # 当 adapter=http 时必填：混元 3D 推理服务地址
+    # --- 适配器 / 推理 ---
+    adapter: str = os.getenv("TO3D_ADAPTER", "mock")  # mock | http
     hunyuan_endpoint: str = os.getenv("TO3D_HUNYUAN_ENDPOINT", "")
-    # 产物（glb/obj）输出目录
     output_dir: str = os.getenv("TO3D_OUTPUT_DIR", "/tmp/to3d_outputs")
-    # 推理请求超时（秒）
     request_timeout: float = float(os.getenv("TO3D_REQUEST_TIMEOUT", "600"))
+    # 适配器调用失败重试次数（网络抖动等）
+    adapter_retries: int = _int("TO3D_ADAPTER_RETRIES", 2)
+
+    # --- 持久化 ---
+    # 空 → 进程内存；sqlite:///abs/path.db → SQLite 持久化（单机生产可用）
+    db_url: str = os.getenv("TO3D_DB_URL", "")
+
+    # --- 安全 ---
+    # 非空则启用鉴权：请求需带 Authorization: Bearer <key> 或 X-API-Key
+    api_key: str = os.getenv("TO3D_API_KEY", "")
+    # CORS 允许来源；默认空=仅同源。设 "*" 或逗号分隔域名开放跨域
+    allowed_origins: list[str] = _list("TO3D_ALLOWED_ORIGINS")
+    # 单张图片(data-uri 解码后)字节上限
+    max_image_bytes: int = _int("TO3D_MAX_IMAGE_BYTES", 10 * 1024 * 1024)
+    # 请求体字节上限（防超大 payload 打爆内存）
+    max_request_bytes: int = _int("TO3D_MAX_REQUEST_BYTES", 64 * 1024 * 1024)
+    # 是否禁止抓取私网/环回地址（防 SSRF），默认禁止
+    block_private_ips: bool = _bool("TO3D_BLOCK_PRIVATE_IPS", True)
+    # 是否允许本地文件路径作为图片来源（默认禁止，防 LFI）
+    allow_local_file_images: bool = _bool("TO3D_ALLOW_LOCAL_FILE_IMAGES", False)
+
+    # --- 并发 / 生命周期 ---
+    # 同时进行的生成任务上限（GPU 通常 1~2）
+    max_concurrency: int = _int("TO3D_MAX_CONCURRENCY", 2)
+    # 任务与产物保留秒数，过期清理
+    task_ttl_seconds: int = _int("TO3D_TASK_TTL_SECONDS", 3600)
+    # 清理扫描间隔
+    cleanup_interval_seconds: int = _int("TO3D_CLEANUP_INTERVAL", 600)
 
 
 settings = Settings()

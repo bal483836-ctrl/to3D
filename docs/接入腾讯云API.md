@@ -56,8 +56,17 @@ pip install cos-python-sdk-v5               # 已在 requirements-tencent.txt
 ```
 未配置 COS 时，多图会**退化为「单图(正图)+文字」**（日志会提示）。
 
+## 5.2 支持最多 8 张图（8 视角）
+产品支持上传最多 8 张图（正/背/左/右/左45/右45/顶/底，Min2 Max8）。mock 与自建 GPU
+桥接路线**默认全部 8 视角都用**。腾讯云路线为避免未知 ViewType 报错，**默认只发
+front/back/left/right 四个正交视角**；据你账号文档把其余 4 个补进映射即可用满 8 视角：
+```bash
+export TENCENT_VIEW_MAP='{"top":"top","bottom":"bottom","left45":"left_front","right45":"right_front"}'
+```
+（未在映射内的视角不会上传/提交，不浪费 COS。）
+
 ## 6. 使用限制与注意
-- **多视图正交视角**：仅 front/back/left/right 映射到腾讯 ViewType，45°/顶/底忽略。
+- **多视图 ViewType**：默认 front/back/left/right；其余靠 `TENCENT_VIEW_MAP` 按文档补齐(见 §5.2)。
 - **无局部编辑**：`refine_geometry` 为 no-op、`repaint` 仅更新纹理描述；几何要贴合
   文字建议补图或用 `text_correct` 策略。
 - **字段/版本以文档为准**：Action、Version(`2025-05-13`)、字段名如与你账号下当前

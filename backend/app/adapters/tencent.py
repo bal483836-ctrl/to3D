@@ -30,8 +30,13 @@ from app.core.preprocess import TextConstraints
 from app.models.schemas import Guidance
 from app.observability import logger
 
-# 我方视角名 → 腾讯云 ViewType（仅这些正交视角，其余最佳努力忽略）
-_VIEW_MAP = {"front": "front", "back": "back", "left": "left", "right": "right"}
+# 我方视角名 → 腾讯云 ViewType。默认仅 4 个正交视角（保证不因未知 ViewType 报错）；
+# 腾讯云产品支持最多 8 视角，用 TENCENT_VIEW_MAP(JSON) 按你账号文档补齐其余 4 个。
+_DEFAULT_VIEW_MAP = {"front": "front", "back": "back", "left": "left", "right": "right"}
+
+
+def _view_map() -> dict:
+    return {**_DEFAULT_VIEW_MAP, **(settings.tencent_view_map or {})}
 
 # 材质先验（供自检的纹理描述；几何维度仍在真实返回网格上测量）
 _MAT_PRIOR = {
@@ -108,10 +113,17 @@ class TencentCloudAdapter(Hunyuan3DAdapter):
         )
 
     def _resolve_images(self, images: list) -> list[tuple[str, str]]:
-        """把每张图解析为 (view, 公网URL)。http 直用；data-uri 且配置了 COS 则上传。"""
+        """把可用视角解析为 (view, 公网URL)。http 直用；data-uri 且配置了 COS 则上传。
+
+        只处理映射表内的视角(+front 用于兜底)，避免为腾讯不接受的视角浪费 COS 上传。
+        """
+        vm = _view_map()
+        keep = set(vm) | {"front"}
         out: list[tuple[str, str]] = []
         for img in images:
             view = getattr(getattr(img, "view", None), "value", None)
+            if view not in keep:
+                continue
             url = str(getattr(img, "url", ""))
             if url.startswith("http"):
                 out.append((view, url))
@@ -128,10 +140,11 @@ class TencentCloudAdapter(Hunyuan3DAdapter):
         if prompt:
             params["Prompt"] = prompt[:200]  # 文档限制约 200 字
 
+        vm = _view_map()
         resolved = self._resolve_images(images)  # [(view, public_url)]
         mv = [
-            {"ViewType": _VIEW_MAP[v], "ViewImageUrl": u}
-            for v, u in resolved if v in _VIEW_MAP
+            {"ViewType": vm[v], "ViewImageUrl": u}
+            for v, u in resolved if v in vm
         ]
         if len(mv) >= 2:
             params["MultiViewImages"] = mv           # 多视图（图+文联合）

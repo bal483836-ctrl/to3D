@@ -72,6 +72,36 @@ def test_build_params_data_uri_multiview_with_cos(monkeypatch):
     }
 
 
+def test_eight_views_with_configured_map(monkeypatch):
+    """配置 TENCENT_VIEW_MAP 后，8 个视角(http URL)全部进入 MultiViewImages。"""
+    adapter, _ = _make_adapter(monkeypatch, {})
+    from app.adapters import tencent as tmod
+    monkeypatch.setattr(tmod.settings, "tencent_view_map", {
+        "top": "top", "bottom": "bottom", "left45": "left_front", "right45": "right_front",
+    })
+    views = [ViewName.front, ViewName.back, ViewName.left, ViewName.right,
+             ViewName.left45, ViewName.right45, ViewName.top, ViewName.bottom]
+    imgs = [ImageInput(view=v, url=f"https://x/{v.value}.png",
+                       required=(v == ViewName.front)) for v in views]
+    p = adapter._build_submit_params(imgs, "花瓶")
+    assert len(p["MultiViewImages"]) == 8
+    assert {v["ViewType"] for v in p["MultiViewImages"]} == {
+        "front", "back", "left", "right", "top", "bottom", "left_front", "right_front",
+    }
+
+
+def test_default_map_keeps_four_orthogonal(monkeypatch):
+    """默认(不配 map)时，只发 4 个正交视角，避免未知 ViewType 报错。"""
+    adapter, _ = _make_adapter(monkeypatch, {})
+    from app.adapters import tencent as tmod
+    monkeypatch.setattr(tmod.settings, "tencent_view_map", {})
+    views = [ViewName.front, ViewName.back, ViewName.top, ViewName.bottom]
+    imgs = [ImageInput(view=v, url=f"https://x/{v.value}.png",
+                       required=(v == ViewName.front)) for v in views]
+    p = adapter._build_submit_params(imgs, "")
+    assert {v["ViewType"] for v in p["MultiViewImages"]} == {"front", "back"}
+
+
 def test_parse_result_prefers_format(monkeypatch):
     adapter, _ = _make_adapter(monkeypatch, {})
     resp = {"ResultFile3Ds": [

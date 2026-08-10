@@ -23,6 +23,19 @@ def _list(name: str) -> list[str]:
     return [x.strip() for x in raw.split(",") if x.strip()] if raw else []
 
 
+def _json_dict(name: str) -> dict:
+    import json
+
+    raw = os.getenv(name, "").strip()
+    if not raw:
+        return {}
+    try:
+        val = json.loads(raw)
+        return val if isinstance(val, dict) else {}
+    except ValueError:
+        return {}
+
+
 class Settings:
     # --- 适配器 / 推理 ---
     # mock(无GPU) | http(自建混元桥接) | tencent(腾讯云 ai3d API,无需 GPU)
@@ -46,6 +59,9 @@ class Settings:
     # 对象存储(COS)：多视图需公网图片 URL，本地多图会先上传到此桶再提交
     tencent_cos_bucket: str = os.getenv("TENCENT_COS_BUCKET", "")  # 形如 name-1250000000
     tencent_cos_region: str = os.getenv("TENCENT_COS_REGION", "") or os.getenv("TENCENT_REGION", "ap-guangzhou")
+    # 视角映射覆盖/扩展：JSON，如 {"top":"top","bottom":"bottom","left45":"left_front"}
+    # 默认仅 front/back/left/right（保证不因未知 ViewType 报错）；据你账号文档补齐 8 视角
+    tencent_view_map: dict = _json_dict("TENCENT_VIEW_MAP")
 
     # --- 持久化 ---
     # 空 → 进程内存；sqlite:///abs/path.db → SQLite 持久化（单机生产可用）

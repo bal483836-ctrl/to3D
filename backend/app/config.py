@@ -25,12 +25,24 @@ def _list(name: str) -> list[str]:
 
 class Settings:
     # --- 适配器 / 推理 ---
-    adapter: str = os.getenv("TO3D_ADAPTER", "mock")  # mock | http
+    # mock(无GPU) | http(自建混元桥接) | tencent(腾讯云 ai3d API,无需 GPU)
+    adapter: str = os.getenv("TO3D_ADAPTER", "mock")
     hunyuan_endpoint: str = os.getenv("TO3D_HUNYUAN_ENDPOINT", "")
     output_dir: str = os.getenv("TO3D_OUTPUT_DIR", "/tmp/to3d_outputs")
     request_timeout: float = float(os.getenv("TO3D_REQUEST_TIMEOUT", "600"))
     # 适配器调用失败重试次数（网络抖动等）
     adapter_retries: int = _int("TO3D_ADAPTER_RETRIES", 2)
+
+    # --- 腾讯云混元生3D (ai3d) ---
+    tencent_secret_id: str = os.getenv("TENCENT_SECRET_ID", "")
+    tencent_secret_key: str = os.getenv("TENCENT_SECRET_KEY", "")
+    tencent_region: str = os.getenv("TENCENT_REGION", "ap-guangzhou")
+    tencent_ai3d_endpoint: str = os.getenv("TENCENT_AI3D_ENDPOINT", "ai3d.tencentcloudapi.com")
+    tencent_ai3d_version: str = os.getenv("TENCENT_AI3D_VERSION", "2025-05-13")
+    tencent_result_format: str = os.getenv("TENCENT_RESULT_FORMAT", "GLB")  # GLB|OBJ|STL|USDZ|FBX
+    tencent_enable_pbr: bool = _bool("TENCENT_ENABLE_PBR", True)
+    tencent_poll_interval: float = float(os.getenv("TENCENT_POLL_INTERVAL", "5"))
+    tencent_poll_timeout: float = float(os.getenv("TENCENT_POLL_TIMEOUT", "600"))
 
     # --- 持久化 ---
     # 空 → 进程内存；sqlite:///abs/path.db → SQLite 持久化（单机生产可用）

@@ -26,8 +26,8 @@ make docker-up    # 容器启动 http://127.0.0.1:8000
 ```
 
 ## 关键约定
-- 默认 `TO3D_ADAPTER=mock`（无 GPU 可跑）。接真实服务：设 `TO3D_ADAPTER=http` +
-  `TO3D_HUNYUAN_ENDPOINT`，见 `docs/接入混元3D与联合条件方案.md`。
+- 适配器三选一：`TO3D_ADAPTER=mock`(无GPU) | `tencent`(腾讯云API,无需GPU,
+  见 `docs/接入腾讯云API.md`) | `http`(自建GPU桥接,见 `docs/接入混元3D与联合条件方案.md`)。
 - 六维：器型/花纹/底部/高度/宽度/材质。冲突仲裁：有对应视角图→以图为准；
   无图但文字明确→提高文字引导修正。
 - 修改后务必 `make test` 保持通过；改前端交互建议用 Playwright 走一遍真实流程。

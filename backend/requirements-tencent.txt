@@ -1,0 +1,4 @@
+# 使用腾讯云 ai3d 适配器(TO3D_ADAPTER=tencent)时额外安装：
+-r requirements.txt
+# CommonClient + TC3-HMAC-SHA256 签名（轻量，仅 common 包）
+tencentcloud-sdk-python-common>=3.0.1000

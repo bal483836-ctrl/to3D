@@ -43,13 +43,17 @@ _OUTPUT_DIR = settings.output_dir
 
 
 def get_adapter() -> Hunyuan3DAdapter:
-    """选择适配器。设置 TO3D_ADAPTER=http 可接入真实混元 3D 服务。"""
+    """选择适配器：mock(无GPU) | http(自建桥接) | tencent(腾讯云 API,无需GPU)。"""
     if settings.adapter == "http":
         from app.adapters.http import HttpHunyuan3DAdapter
 
         if not settings.hunyuan_endpoint:
             raise RuntimeError("TO3D_ADAPTER=http 需同时设置 TO3D_HUNYUAN_ENDPOINT")
         return HttpHunyuan3DAdapter(settings.hunyuan_endpoint, settings.request_timeout)
+    if settings.adapter == "tencent":
+        from app.adapters.tencent import TencentCloudAdapter
+
+        return TencentCloudAdapter()
     return MockHunyuan3DAdapter()
 
 

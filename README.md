@@ -82,11 +82,23 @@ make test        # 或 cd backend && python -m pytest -q   → 11 passed
 图文联合生成与修正闭环收敛、REST + 产物下载端到端。CI 见 `.github/workflows/ci.yml`
 （测试 + Docker 构建冒烟）。
 
-## 接入真实混元 3D 服务
+## 接真实模型：两条路
 
-实现并部署 Hunyuan3D 推理服务（条件编码 + DiT + Paint，图文联合条件生成），
-暴露约定端点，然后：
+| 路线 | GPU | 费用 | 数据 | 适用 |
+|------|-----|------|------|------|
+| **腾讯云 API**（`TO3D_ADAPTER=tencent`） | 否 | 按次 | 发腾讯 | 快速上线 / 无 GPU |
+| **自建 GPU 桥接**（`TO3D_ADAPTER=http`） | 是 | 机器/电 | 本地 | 私有化 / 大规模自控 |
 
+### A. 腾讯云 API（无需 GPU）
+```bash
+pip install -r backend/requirements-tencent.txt
+export TO3D_ADAPTER=tencent
+export TENCENT_SECRET_ID=... TENCENT_SECRET_KEY=... TENCENT_REGION=ap-guangzhou
+```
+详见 [`docs/接入腾讯云API.md`](docs/接入腾讯云API.md)。
+
+### B. 自建混元 3D 推理服务（GPU）
+实现并部署 Hunyuan3D 推理服务（条件编码 + DiT + Paint），暴露约定端点，然后：
 ```bash
 export TO3D_ADAPTER=http
 export TO3D_HUNYUAN_ENDPOINT=https://your-hunyuan3d-service

@@ -82,10 +82,28 @@ TO3D_ADAPTER=http TO3D_HUNYUAN_ENDPOINT=http://host.docker.internal:9000 \
 | `POST /repaint`   | `{glb_base64, focus, prompt}` | `{glb_base64, texture{...}}` |
 | `POST /refine`    | `{glb_base64, focus, prompt}` | `{glb_base64}` |
 
-## 7. 使用建议与局限
+## 7. 纹理/材质分析（让 花纹 & 材质 两维真正生效）
+`/generate` `/reference` `/repaint` 返回的 `texture` 由 **真实分析** 得到，而非猜 prompt：
+1. **多视角离屏渲染**（pyrender，headless 用 EGL）把带纹理网格渲染成若干张图。
+2. **Chinese-CLIP** 对渲染图做零样本判定：
+   - 花纹存在性：对每个候选纹样（缠枝莲/云纹/回纹…）做「有该纹样 vs 光滑无花纹」对比，
+     跨视角取最大概率，超过阈值即判定出现。
+   - 光泽：「釉面高光 vs 哑光磨砂」判定 `glossy`。
+   - 材质类别：陶瓷/金属/木/玻璃/塑料/石，用于兜底 PBR 先验。
+3. **PBR 读取**：直接从 glb 材质读 `metallicFactor/roughnessFactor` 或
+   `metallicRoughnessTexture`(G=roughness,B=metallic) 求均值，最准确。
+
+相关依赖：`pyrender cn_clip numpy`（见 requirements.txt）。headless 渲染需系统库：
+```bash
+apt-get install -y libegl1 libgl1
+```
+可调环境变量：`HY3D_TEX_ANALYZER`(clip/prompt)、`HY3D_CLIP_MODEL`(默认 ViT-B-16)、
+`HY3D_PATTERN_THRESHOLD`(默认 0.55)、`HY3D_RENDER_VIEWS`(默认 4)、`HY3D_RENDER_RES`(默认 384)。
+分析任一步失败会自动回退到关键词版本，服务不中断。设 `HY3D_TEX_ANALYZER=prompt`
+可完全关闭重分析（免装 pyrender/cn_clip）。
+
+## 8. 其它局限
 - **几何以图为准**：多视图越全（尤其 front/back/left/right），几何越准；缺视角时
   提高文字引导或补图。2mv 主要支持这四个正交视角，45°/顶/底会被忽略作最佳努力。
 - **/refine 为 no-op**：官方无局部几何编辑。若几何需贴合文字，建议用
   `text_correct` 策略让首轮即达标，或按路线 A 训练后整体重生成。
-- **纹理描述**：当前由 prompt 关键词粗略给出，仅用于自检打分。要让 花纹/材质 维度
-  真正生效，把 `_texture_descriptor` 换成对渲染图的 CLIP/VQA + PBR 分析。

@@ -6,6 +6,14 @@ pydantic>=2.6
 trimesh>=4.0
 pillow>=10.0
 httpx>=0.27
+numpy>=1.26
+
+# 纹理/材质分析（渲染图 CLIP/VQA + PBR）：
+#   pyrender  离屏多视角渲染（headless 需 EGL：apt-get install -y libegl1 libgl1）
+#   cn_clip   Chinese-CLIP，支持中文纹样/材质判定（缠枝莲、青花、釉面高光…）
+pyrender>=0.1.45
+cn_clip>=1.5
+# 设 HY3D_TEX_ANALYZER=prompt 可关闭以上重分析，退回关键词版本（免装 pyrender/cn_clip）
 # hy3dgen 来自官方仓库源码安装（见 README），不在 PyPI：
 #   git clone https://github.com/Tencent-Hunyuan/Hunyuan3D-2
 #   cd Hunyuan3D-2 && pip install -r requirements.txt && pip install -e .

@@ -189,7 +189,10 @@ async function sendDecision(action) {
 
 function renderDownloads(s) {
   const box = document.getElementById('downloads'); box.hidden = false;
-  box.innerHTML = `<a href="/api/v1/generation/${currentTaskId}/mesh" download>下载 GLB</a>`;
+  const base = `/api/v1/generation/${currentTaskId}/mesh`;
+  box.innerHTML =
+    `<a href="${base}?format=glb" download>下载 GLB</a>` +
+    `<a href="${base}?format=obj" download>下载 OBJ</a>`;
 }
 
 function resetOutputs() {

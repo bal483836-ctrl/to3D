@@ -102,19 +102,30 @@ async def require_api_key(
 
     接受 `Authorization: Bearer <key>` 或 `X-API-Key: <key>`。
     """
-    if not settings.api_key:
-        return  # 未配置 → 不启用鉴权
-    provided = None
-    if authorization and authorization.lower().startswith("bearer "):
-        provided = authorization[7:].strip()
-    elif x_api_key:
-        provided = x_api_key.strip()
-    if provided != settings.api_key:
+    if not is_authorized(authorization, x_api_key):
         raise HTTPException(status_code=401, detail="未授权：缺少或错误的 API Key")
+
+
+def _extract_header_key(authorization: str | None, x_api_key: str | None) -> str | None:
+    if authorization and authorization.lower().startswith("bearer "):
+        return authorization[7:].strip()
+    if x_api_key:
+        return x_api_key.strip()
+    return None
+
+
+def is_authorized(
+    authorization: str | None = None,
+    x_api_key: str | None = None,
+    token: str | None = None,
+) -> bool:
+    """统一鉴权判定：未配置 API Key 则放行；否则头部或 query token 任一匹配即可。"""
+    if not settings.api_key:
+        return True
+    key = _extract_header_key(authorization, x_api_key) or token
+    return key == settings.api_key
 
 
 def check_ws_token(token: str | None) -> bool:
     """WebSocket 鉴权：未配置则放行；配置了则校验 query token。"""
-    if not settings.api_key:
-        return True
-    return token == settings.api_key
+    return is_authorized(token=token)

@@ -108,7 +108,8 @@ def test_api_create_and_fetch():
                 break
             time.sleep(0.25)
         assert state["status"] == "done", state
-        # mesh 可下载
-        mesh_resp = client.get(f"/api/v1/generation/{task_id}/mesh")
-        assert mesh_resp.status_code == 200
-        assert len(mesh_resp.content) > 0
+        # GLB 与 OBJ 均可下载
+        glb = client.get(f"/api/v1/generation/{task_id}/mesh")
+        assert glb.status_code == 200 and len(glb.content) > 0
+        obj = client.get(f"/api/v1/generation/{task_id}/mesh?format=obj")
+        assert obj.status_code == 200 and len(obj.content) > 0

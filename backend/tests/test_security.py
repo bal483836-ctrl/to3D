@@ -1,8 +1,6 @@
 """安全校验测试：图片来源(SSRF/LFI/大小) 与 API Key 鉴权。"""
 from __future__ import annotations
 
-import importlib
-
 import pytest
 
 from app import security
@@ -44,27 +42,23 @@ def test_reject_oversize_data_uri(monkeypatch):
 
 
 def test_api_key_enforced(monkeypatch):
-    # 打开鉴权后，未带 key 的请求应 401
-    monkeypatch.setenv("TO3D_API_KEY", "secret")
-    import app.config as config
-    importlib.reload(config)
-    import app.security as sec
-    importlib.reload(sec)
+    # 打开鉴权后，未带 key 的请求应 401（monkeypatch 直接改 settings，避免 reload 污染）
     from fastapi.testclient import TestClient
-    import app.main as main
-    importlib.reload(main)
 
-    with TestClient(main.app) as client:
+    from app.main import app
+    monkeypatch.setattr(security.settings, "api_key", "secret")
+
+    with TestClient(app) as client:
         r = client.post("/api/v1/generation", json={
             "images": [{"view": "front", "url": PX, "required": True}, {"view": "left", "url": PX}],
             "prompt": "陶瓷花瓶",
         })
         assert r.status_code == 401
-        r2 = client.get("/api/health")  # 健康检查不需鉴权
-        assert r2.status_code == 200
-
-    # 还原环境，避免影响其它测试
-    monkeypatch.delenv("TO3D_API_KEY", raising=False)
-    importlib.reload(config)
-    importlib.reload(sec)
-    importlib.reload(main)
+        assert client.get("/api/health").status_code == 200  # 健康检查不需鉴权
+        # 带正确 key 应放行（进入业务，返回 200 任务已创建）
+        ok = client.post("/api/v1/generation",
+                         headers={"X-API-Key": "secret"},
+                         json={"images": [{"view": "front", "url": PX, "required": True},
+                                          {"view": "left", "url": PX}],
+                               "prompt": "陶瓷花瓶"})
+        assert ok.status_code == 200

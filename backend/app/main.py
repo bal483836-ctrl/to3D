@@ -11,7 +11,15 @@ import os
 import uuid
 from contextlib import asynccontextmanager
 
-from fastapi import Depends, FastAPI, HTTPException, Request, WebSocket, WebSocketDisconnect
+from fastapi import (
+    Depends,
+    FastAPI,
+    Header,
+    HTTPException,
+    Request,
+    WebSocket,
+    WebSocketDisconnect,
+)
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
@@ -27,7 +35,13 @@ from app.observability import (
     request_id_var,
     setup_logging,
 )
-from app.security import ImageSourceError, check_ws_token, require_api_key, validate_images
+from app.security import (
+    ImageSourceError,
+    check_ws_token,
+    is_authorized,
+    require_api_key,
+    validate_images,
+)
 from app.store import store
 
 # 保持后台任务的强引用，防止被 GC 中途回收
@@ -145,16 +159,34 @@ async def post_decision(task_id: str, decision: DecisionRequest) -> dict:
     return {"ok": True}
 
 
-@app.get("/api/v1/generation/{task_id}/mesh", dependencies=[Depends(require_api_key)])
-async def get_mesh(task_id: str):
+@app.get("/api/v1/generation/{task_id}/mesh")
+async def get_mesh(
+    task_id: str,
+    format: str = "glb",
+    token: str | None = None,
+    authorization: str | None = Header(default=None),
+    x_api_key: str | None = Header(default=None),
+):
+    """下载产物。format=glb|obj。
+
+    浏览器 <a download> / 3D 预览无法带鉴权头，故除头部外也接受 ?token=<key>，
+    与 WebSocket 一致（未配置 API Key 时二者皆放行）。
+    """
+    if not is_authorized(authorization, x_api_key, token):
+        raise HTTPException(401, "未授权：缺少或错误的 API Key")
     state = store.get(task_id)
-    if state is None or state.outputs is None or not state.outputs.glb:
+    if state is None or state.outputs is None:
         raise HTTPException(404, "模型尚未就绪")
-    if not os.path.isfile(state.outputs.glb):
+    fmt = format.lower()
+    if fmt not in {"glb", "obj"}:
+        raise HTTPException(400, "format 仅支持 glb 或 obj")
+    path = state.outputs.glb if fmt == "glb" else state.outputs.obj
+    media = "model/gltf-binary" if fmt == "glb" else "text/plain"
+    if not path:
+        raise HTTPException(404, "该格式产物不存在")
+    if not os.path.isfile(path):
         raise HTTPException(410, "产物已过期清理")
-    return FileResponse(
-        state.outputs.glb, media_type="model/gltf-binary", filename=f"{task_id}.glb"
-    )
+    return FileResponse(path, media_type=media, filename=f"{task_id}.{fmt}")
 
 
 @app.websocket("/ws/tasks/{task_id}")

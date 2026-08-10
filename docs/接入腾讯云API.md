@@ -45,11 +45,19 @@ curl http://127.0.0.1:8000/api/ready       # adapter 应为 tencent
 3. 下载结果模型文件，载入为网格返回给编排层。
 鉴权由官方 SDK 的 `CommonClient` 完成（TC3-HMAC-SHA256 签名）。
 
+## 5.1 多图(多视图)：配置 COS 桶即可用本地上传图
+腾讯云多视图要求**公网可访问的图片 URL**。本适配器已内置：配置了 `TENCENT_COS_BUCKET`
+后，前端上传的本地图片(data-uri)会**自动上传到 COS** 取得 URL，再作为 `MultiViewImages`
+提交——这样「多图 + 文字」在云端路线正常执行。
+```bash
+export TENCENT_COS_BUCKET=your-bucket-1250000000
+export TENCENT_COS_REGION=ap-guangzhou      # 留空则用 TENCENT_REGION
+pip install cos-python-sdk-v5               # 已在 requirements-tencent.txt
+```
+未配置 COS 时，多图会**退化为「单图(正图)+文字」**（日志会提示）。
+
 ## 6. 使用限制与注意
-- **多视图需公网可访问的图片 URL**：`MultiViewImages` 走 `ViewImageUrl`。
-  若前端传的是本地图片(data-uri)，仅支持**单图**(`ImageBase64`)。生产建议先把
-  用户图片上传对象存储拿到 URL，再提交多视图（可在 `_build_submit_params` 扩展）。
-- **正交视角**：仅 front/back/left/right 映射到腾讯 ViewType，45°/顶/底忽略。
+- **多视图正交视角**：仅 front/back/left/right 映射到腾讯 ViewType，45°/顶/底忽略。
 - **无局部编辑**：`refine_geometry` 为 no-op、`repaint` 仅更新纹理描述；几何要贴合
   文字建议补图或用 `text_correct` 策略。
 - **字段/版本以文档为准**：Action、Version(`2025-05-13`)、字段名如与你账号下当前

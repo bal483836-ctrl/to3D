@@ -41,15 +41,35 @@ def test_build_params_multiview_http(monkeypatch):
     assert {v["ViewType"] for v in p["MultiViewImages"]} == {"front", "left"}
 
 
-def test_build_params_data_uri_single(monkeypatch):
+def test_build_params_data_uri_single_without_cos(monkeypatch):
     adapter, _ = _make_adapter(monkeypatch, {})
+    from app.adapters import tencent as tmod
+    monkeypatch.setattr(tmod.settings, "tencent_cos_bucket", "")  # 未配 COS
     imgs = [
         ImageInput(view=ViewName.front, url="data:image/png;base64,QUJD", required=True),
         ImageInput(view=ViewName.left, url="data:image/png;base64,QUJD"),
     ]
     p = adapter._build_submit_params(imgs, "")
-    assert p["ImageBase64"] == "QUJD"
+    assert p["ImageBase64"] == "QUJD"        # 退化为单图
     assert "MultiViewImages" not in p
+
+
+def test_build_params_data_uri_multiview_with_cos(monkeypatch):
+    adapter, _ = _make_adapter(monkeypatch, {})
+    from app.adapters import tencent as tmod
+    monkeypatch.setattr(tmod.settings, "tencent_cos_bucket", "bkt-123")
+    # 伪造上传：返回可辨识的 URL，不触真实 COS
+    monkeypatch.setattr(adapter, "_upload_data_uri",
+                        lambda view, uri: f"https://cos/{view}.png")
+    imgs = [
+        ImageInput(view=ViewName.front, url="data:image/png;base64,QUJD", required=True),
+        ImageInput(view=ViewName.left, url="data:image/png;base64,QUJD"),
+    ]
+    p = adapter._build_submit_params(imgs, "青花瓷花瓶")
+    assert p["Prompt"] == "青花瓷花瓶"
+    assert {v["ViewType"]: v["ViewImageUrl"] for v in p["MultiViewImages"]} == {
+        "front": "https://cos/front.png", "left": "https://cos/left.png",
+    }
 
 
 def test_parse_result_prefers_format(monkeypatch):

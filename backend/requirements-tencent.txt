@@ -2,3 +2,5 @@
 -r requirements.txt
 # CommonClient + TC3-HMAC-SHA256 签名（轻量，仅 common 包）
 tencentcloud-sdk-python-common>=3.0.1000
+# 多视图需公网图片 URL：本地多图先上传 COS（配置 TENCENT_COS_BUCKET 时用到）
+cos-python-sdk-v5>=1.9.29

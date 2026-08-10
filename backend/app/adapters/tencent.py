@@ -46,6 +46,7 @@ class TencentCloudAdapter(Hunyuan3DAdapter):
             raise RuntimeError("腾讯云适配器需设置 TENCENT_SECRET_ID / TENCENT_SECRET_KEY")
         self._fmt = settings.tencent_result_format.upper()
         self._client = None  # 懒建
+        self._cos = None  # 懒建 COS 客户端
 
     # --- 云端调用（可在测试中替换 _call_api / _download_mesh 以避免真实网络）----
     def _get_client(self):
@@ -79,6 +80,45 @@ class TencentCloudAdapter(Hunyuan3DAdapter):
         ftype = "glb" if ftype not in {"glb", "obj", "stl"} else ftype
         return trimesh.load(io.BytesIO(resp.content), file_type=ftype, force="mesh")
 
+    def _upload_data_uri(self, view: str, data_uri: str) -> str:
+        """把 data-uri 图片上传腾讯云 COS，返回公网 URL。测试可覆盖此方法。"""
+        import uuid
+
+        from qcloud_cos import CosConfig, CosS3Client
+
+        if self._cos is None:
+            cfg = CosConfig(
+                Region=settings.tencent_cos_region,
+                SecretId=settings.tencent_secret_id,
+                SecretKey=settings.tencent_secret_key,
+            )
+            self._cos = CosS3Client(cfg)
+        header, b64 = data_uri.split(",", 1)
+        ext = "png"
+        if "image/" in header:
+            ext = header.split("image/", 1)[1].split(";", 1)[0] or "png"
+        key = f"to3d/{uuid.uuid4().hex}_{view or 'img'}.{ext}"
+        self._cos.put_object(
+            Bucket=settings.tencent_cos_bucket, Body=base64.b64decode(b64), Key=key,
+            ContentType=f"image/{ext}",
+        )
+        return (
+            f"https://{settings.tencent_cos_bucket}.cos."
+            f"{settings.tencent_cos_region}.myqcloud.com/{key}"
+        )
+
+    def _resolve_images(self, images: list) -> list[tuple[str, str]]:
+        """把每张图解析为 (view, 公网URL)。http 直用；data-uri 且配置了 COS 则上传。"""
+        out: list[tuple[str, str]] = []
+        for img in images:
+            view = getattr(getattr(img, "view", None), "value", None)
+            url = str(getattr(img, "url", ""))
+            if url.startswith("http"):
+                out.append((view, url))
+            elif url.startswith("data:") and settings.tencent_cos_bucket:
+                out.append((view, self._upload_data_uri(view, url)))
+        return out
+
     # --- 参数构建 / 结果解析（字段名如与文档不符，集中在此处调整）--------------
     def _build_submit_params(self, images: list, prompt: str) -> dict:
         params: dict = {
@@ -88,31 +128,35 @@ class TencentCloudAdapter(Hunyuan3DAdapter):
         if prompt:
             params["Prompt"] = prompt[:200]  # 文档限制约 200 字
 
-        http_views = [
-            (getattr(img, "view", None), img.url)
-            for img in images
-            if isinstance(getattr(img, "url", ""), str) and img.url.startswith("http")
+        resolved = self._resolve_images(images)  # [(view, public_url)]
+        mv = [
+            {"ViewType": _VIEW_MAP[v], "ViewImageUrl": u}
+            for v, u in resolved if v in _VIEW_MAP
         ]
-        data_front = next(
-            (img for img in images
-             if getattr(getattr(img, "view", None), "value", None) == "front"
-             and str(getattr(img, "url", "")).startswith("data:")),
-            None,
-        )
-
-        if len(http_views) >= 2:
-            # 多视图：需公网可访问的图片 URL
-            mv = []
-            for view, url in http_views:
-                vt = _VIEW_MAP.get(getattr(view, "value", view))
-                if vt:
-                    mv.append({"ViewType": vt, "ViewImageUrl": url})
-            if mv:
-                params["MultiViewImages"] = mv
-        elif http_views:
-            params["ImageUrl"] = http_views[0][1]
-        elif data_front is not None:
-            params["ImageBase64"] = data_front.url.split(",", 1)[1]
+        if len(mv) >= 2:
+            params["MultiViewImages"] = mv           # 多视图（图+文联合）
+        elif len(mv) == 1:
+            params["ImageUrl"] = mv[0]["ViewImageUrl"]
+        elif resolved:
+            params["ImageUrl"] = resolved[0][1]      # 有 URL 但非正交视角
+        else:
+            # 无可用 URL：退化为单图 base64（正图优先），仍可与 Prompt 联合
+            data_front = next(
+                (img for img in images
+                 if str(getattr(img, "url", "")).startswith("data:")
+                 and getattr(getattr(img, "view", None), "value", None) == "front"),
+                None,
+            ) or next(
+                (img for img in images if str(getattr(img, "url", "")).startswith("data:")),
+                None,
+            )
+            if data_front is not None:
+                params["ImageBase64"] = data_front.url.split(",", 1)[1]
+                if len(images) > 1:
+                    logger.warning(
+                        "腾讯云多视图需公网图片 URL；未配置 TENCENT_COS_BUCKET，"
+                        "已退化为单图(正图)+文字。配置 COS 桶即可用全部视角。"
+                    )
         # 否则纯文本 → 仅 Prompt（text-to-3D）
         return params
 

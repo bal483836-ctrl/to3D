@@ -43,6 +43,9 @@ class Settings:
     tencent_enable_pbr: bool = _bool("TENCENT_ENABLE_PBR", True)
     tencent_poll_interval: float = float(os.getenv("TENCENT_POLL_INTERVAL", "5"))
     tencent_poll_timeout: float = float(os.getenv("TENCENT_POLL_TIMEOUT", "600"))
+    # 对象存储(COS)：多视图需公网图片 URL，本地多图会先上传到此桶再提交
+    tencent_cos_bucket: str = os.getenv("TENCENT_COS_BUCKET", "")  # 形如 name-1250000000
+    tencent_cos_region: str = os.getenv("TENCENT_COS_REGION", "") or os.getenv("TENCENT_REGION", "ap-guangzhou")
 
     # --- 持久化 ---
     # 空 → 进程内存；sqlite:///abs/path.db → SQLite 持久化（单机生产可用）

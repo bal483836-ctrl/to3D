@@ -68,7 +68,10 @@ async def lifespan(app: FastAPI):
         logger.warning(
             "当前为 mock 适配器：产出的是占位网格（不读取你上传的图片内容），"
             "仅供无 GPU 时跑通链路。接真实模型请设 TO3D_ADAPTER=tencent 或 http"
+            "（只填凭据不改这一项仍然是 mock）"
         )
+    for warn in config.config_warnings():
+        logger.warning("配置提示：%s", warn)
     stop = asyncio.Event()
     cleaner = asyncio.create_task(cleanup_loop(stop))
     try:
@@ -133,6 +136,7 @@ async def health() -> dict:
         "adapter": settings.adapter,
         "is_mock": settings.adapter == "mock",
         "env_file": config.ENV_FILE,
+        "warnings": config.config_warnings(),
     }
 
 

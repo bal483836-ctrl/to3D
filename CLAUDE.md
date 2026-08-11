@@ -22,7 +22,7 @@
 ```bash
 make install      # 建 venv + 装依赖
 make dev          # 本地热重载 http://127.0.0.1:8000
-make test         # 运行测试（应 87 passed）
+make test         # 运行测试（应 93 passed）
 make docker-up    # 容器启动 http://127.0.0.1:8000
 ./scripts/dev.sh  # 一条命令起本地服务
 ```

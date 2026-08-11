@@ -110,6 +110,46 @@ def test_settings_read_env_after_dotenv_load(tmp_path, monkeypatch):
         importlib.reload(config_mod)
 
 
+def test_warns_on_non_tencent_credential_format(monkeypatch):
+    """填了别家服务的 ak-/sk- 密钥时，启动即指出，别等跑完一轮才 AuthFailure。"""
+    from app import config
+
+    monkeypatch.setattr(config.settings, "adapter", "tencent")
+    monkeypatch.setattr(config.settings, "tencent_secret_id", "ak-20260811-a67b8a96")
+    monkeypatch.setattr(config.settings, "tencent_cos_bucket", "bucket-1250000000")
+    warns = config.config_warnings()
+    assert len(warns) == 1 and "AKID" in warns[0]
+
+
+def test_no_warning_for_valid_tencent_credential(monkeypatch):
+    from app import config
+
+    monkeypatch.setattr(config.settings, "adapter", "tencent")
+    monkeypatch.setattr(config.settings, "tencent_secret_id", "AKID" + "z" * 32)
+    monkeypatch.setattr(config.settings, "tencent_cos_bucket", "bucket-1250000000")
+    assert config.config_warnings() == []
+
+
+def test_warns_when_cos_bucket_missing(monkeypatch):
+    """多图需公网 URL，没配桶会静默退化成单图——这种降级必须说出来。"""
+    from app import config
+
+    monkeypatch.setattr(config.settings, "adapter", "tencent")
+    monkeypatch.setattr(config.settings, "tencent_secret_id", "AKID" + "z" * 32)
+    monkeypatch.setattr(config.settings, "tencent_cos_bucket", "")
+    warns = config.config_warnings()
+    assert len(warns) == 1 and "COS" in warns[0]
+
+
+def test_warnings_only_apply_to_tencent(monkeypatch):
+    from app import config
+
+    monkeypatch.setattr(config.settings, "adapter", "mock")
+    monkeypatch.setattr(config.settings, "tencent_secret_id", "ak-whatever")
+    monkeypatch.setattr(config.settings, "tencent_cos_bucket", "")
+    assert config.config_warnings() == []
+
+
 def test_startup_without_env_file(monkeypatch, tmp_path):
     """没有 .env 时（全新 clone 的默认情形）也必须能正常启动并提示如何配置。"""
     from fastapi.testclient import TestClient

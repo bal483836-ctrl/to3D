@@ -92,20 +92,23 @@ cp .env.example .env      # 改 TO3D_ADAPTER / 凭据等，启动时自动读取
 服务启动即加载仓库根的 `.env`（`make dev` / Docker / VSCode 均生效），
 **已存在的环境变量优先**于文件；`TO3D_ENV_FILE` 可指定其它路径。
 
-确认配置真的生效（而不是还在跑占位模型）：
+> **`TO3D_ADAPTER` 是"用不用真实模型"的总开关**。只填密钥、不改这一行，
+> 服务仍然跑 mock（产出占位网格，不读取上传图片的内容）。
+
+确认配置真的生效：
 
 ```bash
 curl -s localhost:8000/api/health
-# {"status":"ok","adapter":"tencent","is_mock":false,"env_file":"/path/to/.env"}
+# {"adapter":"tencent","is_mock":false,"env_file":"/path/to/.env","warnings":[]}
 ```
 
-`is_mock: true` 表示当前产出的是**占位网格**（不读取上传图片的内容），
-启动日志也会给出同样的告警。要接真实模型见下节。
+`is_mock: true` 就是还在跑占位模型。`warnings` 会指出"能启动但多半不是你要的效果"
+的配置问题（如密钥格式不对、未配 COS 桶导致多图退化为单图），启动日志同样输出。
 
 ## 测试
 
 ```bash
-make test        # 或 cd backend && python -m pytest -q   → 87 passed
+make test        # 或 cd backend && python -m pytest -q   → 93 passed
 ```
 
 覆盖：中文约束抽取（含「高17.5、口径16.5公分」这类数值尺寸）、网格底部形态与比例的

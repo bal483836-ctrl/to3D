@@ -111,3 +111,27 @@ class Settings:
 
 
 settings = Settings()
+
+
+# 腾讯云 SecretId 形如 AKIDxxxxxxxx...（AKID + 32 位）。别的服务常用 ak-/sk- 前缀，
+# 填错了要跑到云端才报 AuthFailure，不如启动即指出来。
+_TENCENT_ID_PREFIX = "AKID"
+
+
+def config_warnings() -> list[str]:
+    """返回"能启动但多半不是你要的效果"的配置问题。不阻断启动。"""
+    warns: list[str] = []
+    if settings.adapter == "tencent":
+        sid = settings.tencent_secret_id
+        if sid and not sid.startswith(_TENCENT_ID_PREFIX):
+            warns.append(
+                f"TENCENT_SECRET_ID 不像腾讯云密钥（应为 {_TENCENT_ID_PREFIX} 开头，"
+                f"实际以 '{sid[:6]}…' 开头）。腾讯云控制台『访问管理→API密钥管理』可查看；"
+                "其它服务的 ak-/sk- 密钥在这里用不了。"
+            )
+        if not settings.tencent_cos_bucket:
+            warns.append(
+                "未配置 TENCENT_COS_BUCKET：腾讯云多视图需要公网图片 URL，"
+                "本地上传的多图会退化为『单图(正图)+文字』，其余视角不参与生成。"
+            )
+    return warns

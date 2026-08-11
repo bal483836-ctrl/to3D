@@ -189,6 +189,59 @@ async def get_mesh(
     return FileResponse(path, media_type=media, filename=f"{task_id}.{fmt}")
 
 
+@app.post("/api/v1/generation/{task_id}/dataset", dependencies=[Depends(require_api_key)])
+async def create_dataset(task_id: str) -> dict:
+    """后续任务：对已生成的模型渲染 50 视角 × 四模态(Color/Depth/Normal/Mask) 数据集。"""
+    from app.core import dataset
+
+    state = store.get(task_id)
+    if state is None or state.outputs is None or not state.outputs.glb:
+        raise HTTPException(404, "模型尚未就绪，无法生成数据集")
+    if not os.path.isfile(state.outputs.glb):
+        raise HTTPException(410, "模型产物已过期清理")
+
+    ds_id = dataset.new_dataset_id()
+    dataset._jobs[ds_id] = dataset.DatasetJob(dataset_id=ds_id)
+    t = asyncio.create_task(dataset.run_dataset_job(ds_id, state.outputs.glb))
+    _background_tasks.add(t)
+    t.add_done_callback(_background_tasks.discard)
+    return {"dataset_id": ds_id, "status": "queued"}
+
+
+@app.get("/api/v1/dataset/{dataset_id}", dependencies=[Depends(require_api_key)])
+async def get_dataset(dataset_id: str) -> dict:
+    from app.core import dataset
+
+    job = dataset.get_job(dataset_id)
+    if job is None:
+        raise HTTPException(404, "数据集任务不存在")
+    return {
+        "dataset_id": job.dataset_id, "status": job.status, "progress": job.progress,
+        "error": job.error, "log_tail": job.log_tail[-8:],
+        "download": f"/api/v1/dataset/{dataset_id}/download" if job.status == "done" else None,
+    }
+
+
+@app.get("/api/v1/dataset/{dataset_id}/download")
+async def download_dataset(
+    dataset_id: str,
+    token: str | None = None,
+    authorization: str | None = Header(default=None),
+    x_api_key: str | None = Header(default=None),
+):
+    from app.core import dataset
+
+    if not is_authorized(authorization, x_api_key, token):
+        raise HTTPException(401, "未授权")
+    job = dataset.get_job(dataset_id)
+    if job is None or job.status != "done" or not job.zip_path:
+        raise HTTPException(404, "数据集尚未就绪")
+    if not os.path.isfile(job.zip_path):
+        raise HTTPException(410, "数据集已过期清理")
+    return FileResponse(job.zip_path, media_type="application/zip",
+                        filename=f"{dataset_id}.zip")
+
+
 @app.websocket("/ws/tasks/{task_id}")
 async def ws_task(websocket: WebSocket, task_id: str) -> None:
     # WS 鉴权：?token=<api_key>（配置了 API Key 时强制）

@@ -89,5 +89,12 @@ class Settings:
     # 清理扫描间隔
     cleanup_interval_seconds: int = _int("TO3D_CLEANUP_INTERVAL", 600)
 
+    # --- 后续任务：50 视角数据集(复用 dataset_tool 的 Blender 脚本) ---
+    blender_bin: str = os.getenv("TO3D_BLENDER_BIN", "blender")
+    dataset_dir: str = os.getenv("TO3D_DATASET_DIR", "/tmp/to3d_datasets")
+    dataset_engine: str = os.getenv("TO3D_DATASET_ENGINE", "CYCLES")
+    dataset_samples: int = _int("TO3D_DATASET_SAMPLES", 64)
+    dataset_timeout: float = float(os.getenv("TO3D_DATASET_TIMEOUT", "3600"))
+
 
 settings = Settings()

@@ -13,9 +13,9 @@
   - `app/config.py` 环境变量配置
 - `frontend/` 单页应用：多图上传 + 文字 + 模态引导权重 + 进度 + 报告 + three.js 预览
   （`frontend/vendor/` 为本地 three.js，离线可运行）
-- `tools/` Blender 50 视角渲染脚本 + 相机参数转换(camera_utils，可单测)
-- `datasets/` 参考 `reference_meta_data.json`(50 组相机参数，800×800)
-- `docs/` 方案设计、可视化页、接入混元/腾讯云、50 视角数据集生成
+- `dataset_tool/` **独立**工具：上传 3D 模型 → Blender 按参考 50 组相机参数渲染
+  Color/Depth/Normal/Mask + meta（与主服务解耦，可 VSCode 单独运行）
+- `docs/` 方案设计、可视化页、接入混元/腾讯云
 - `backend/Dockerfile` `docker-compose.yml` `Makefile` `scripts/dev.sh` 运行/部署
 
 ## 常用命令

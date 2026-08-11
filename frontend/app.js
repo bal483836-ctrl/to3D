@@ -193,52 +193,10 @@ function renderDownloads(s) {
   box.innerHTML =
     `<a href="${base}?format=glb" download>下载 GLB</a>` +
     `<a href="${base}?format=obj" download>下载 OBJ</a>`;
-
-  const ds = document.getElementById('dataset'); ds.hidden = false;
-  ds.innerHTML =
-    `<button id="dsBtn" class="ds-btn">✦ 一键生成 50 视角数据集（Color/Depth/Normal/Mask）</button>` +
-    `<div id="dsStatus" class="ds-status"></div>`;
-  document.getElementById('dsBtn').addEventListener('click', startDataset);
-}
-
-async function startDataset() {
-  const btn = document.getElementById('dsBtn');
-  const status = document.getElementById('dsStatus');
-  btn.disabled = true; status.textContent = '提交中…';
-  try {
-    const r = await fetch(`/api/v1/generation/${currentTaskId}/dataset`, { method: 'POST' });
-    if (!r.ok) throw new Error((await r.json()).detail || r.statusText);
-    pollDataset((await r.json()).dataset_id);
-  } catch (e) {
-    status.textContent = '失败：' + e.message; btn.disabled = false;
-  }
-}
-
-async function pollDataset(dsId) {
-  const status = document.getElementById('dsStatus');
-  const btn = document.getElementById('dsBtn');
-  const tick = async () => {
-    try {
-      const s = await (await fetch(`/api/v1/dataset/${dsId}`)).json();
-      if (s.status === 'running' || s.status === 'queued') {
-        status.textContent = `渲染中… ${(s.progress * 100).toFixed(0)}%`;
-        setTimeout(tick, 2000);
-      } else if (s.status === 'done') {
-        status.innerHTML = `✓ 完成 · <a href="${s.download}" download>下载数据集 (zip)</a>`;
-        btn.disabled = false;
-      } else {
-        status.textContent = '失败：' + (s.error || '');
-        btn.disabled = false;
-      }
-    } catch (e) {
-      status.textContent = '状态查询失败：' + e.message; btn.disabled = false;
-    }
-  };
-  tick();
 }
 
 function resetOutputs() {
-  ['report', 'decision', 'downloads', 'dataset', 'viewerWrap'].forEach((id) =>
+  ['report', 'decision', 'downloads', 'viewerWrap'].forEach((id) =>
     document.getElementById(id).hidden = true);
 }
 

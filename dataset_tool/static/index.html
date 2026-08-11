@@ -1,0 +1,129 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>50 视角数据集生成工具</title>
+  <style>
+    :root{--bg:#0e1217;--card:#161b23;--line:#28303c;--ink:#eef1f6;--muted:#9aa5b4;
+      --accent:#2dd4bf;--accent2:#6f9bff;--bad:#f07a7a;
+      --sans:-apple-system,BlinkMacSystemFont,"PingFang SC","Microsoft YaHei","Segoe UI",sans-serif;
+      --mono:ui-monospace,"SF Mono",Menlo,monospace}
+    *{box-sizing:border-box}
+    body{margin:0;background:var(--bg);color:var(--ink);font-family:var(--sans);
+      display:flex;min-height:100vh;align-items:center;justify-content:center;padding:24px}
+    .card{width:100%;max-width:560px;background:var(--card);border:1px solid var(--line);
+      border-radius:16px;padding:28px}
+    h1{font-size:20px;margin:0 0 6px}
+    .sub{color:var(--muted);font-size:13px;margin:0 0 22px}
+    .drop{border:1.5px dashed var(--line);border-radius:12px;padding:30px;text-align:center;
+      color:var(--muted);cursor:pointer;transition:.15s;background:#1b212c}
+    .drop:hover,.drop.over{border-color:var(--accent);color:var(--ink)}
+    .drop b{color:var(--accent2)}
+    .file{margin-top:12px;font-family:var(--mono);font-size:12.5px;color:var(--ink)}
+    .modalities{display:flex;gap:8px;margin:16px 0;flex-wrap:wrap}
+    .modalities span{font-size:11px;font-family:var(--mono);background:#1b212c;border:1px solid var(--line);
+      color:var(--muted);padding:3px 9px;border-radius:6px}
+    button{width:100%;margin-top:8px;background:linear-gradient(90deg,var(--accent2),var(--accent));
+      color:#06131a;font-weight:700;font-size:15px;border:none;border-radius:11px;padding:12px;cursor:pointer}
+    button:disabled{opacity:.5;cursor:not-allowed}
+    .bar{height:8px;background:#1b212c;border-radius:999px;overflow:hidden;margin-top:16px;display:none}
+    .bar i{display:block;height:100%;width:0;background:var(--accent);transition:width .3s}
+    .status{margin-top:12px;font-size:13px;color:var(--muted);min-height:18px}
+    .status a{color:var(--accent)}
+    .err{color:var(--bad)}
+    .hint{margin-top:18px;font-size:12px;color:var(--muted);line-height:1.6}
+    code{font-family:var(--mono);background:#1b212c;padding:1px 6px;border-radius:5px}
+  </style>
+</head>
+<body>
+  <div class="card">
+    <h1>50 视角数据集生成</h1>
+    <p class="sub">上传一个 3D 模型，按参考相机参数渲染 50 视角 × 四模态数据（含 meta_data.json）。</p>
+
+    <div class="drop" id="drop">
+      拖入或 <b>点击选择</b> 3D 模型<br>
+      <span style="font-size:12px">支持 .glb / .gltf / .obj / .fbx / .ply</span>
+      <div class="file" id="fileName"></div>
+    </div>
+    <input type="file" id="fileInput" accept=".glb,.gltf,.obj,.fbx,.ply" hidden />
+
+    <div class="modalities">
+      <span>Color</span><span>Depth</span><span>Normal</span><span>Mask</span><span>× 50 视角</span><span>800×800</span>
+    </div>
+
+    <button id="go" disabled>✦ 生成数据集</button>
+    <div class="bar" id="bar"><i></i></div>
+    <div class="status" id="status"></div>
+
+    <div class="hint">
+      需机器已装 <b>Blender 3.x/4.x</b>，并设 <code>TO3D_BLENDER_BIN</code>。
+      相机参数取自 <code>reference_meta_data.json</code>（50 组，不修改）。
+    </div>
+  </div>
+
+  <script>
+    const drop = document.getElementById('drop');
+    const input = document.getElementById('fileInput');
+    const go = document.getElementById('go');
+    const status = document.getElementById('status');
+    const bar = document.getElementById('bar');
+    const barI = bar.querySelector('i');
+    const fileName = document.getElementById('fileName');
+    let file = null;
+
+    drop.addEventListener('click', () => input.click());
+    drop.addEventListener('dragover', (e) => { e.preventDefault(); drop.classList.add('over'); });
+    drop.addEventListener('dragleave', () => drop.classList.remove('over'));
+    drop.addEventListener('drop', (e) => {
+      e.preventDefault(); drop.classList.remove('over');
+      if (e.dataTransfer.files[0]) setFile(e.dataTransfer.files[0]);
+    });
+    input.addEventListener('change', () => input.files[0] && setFile(input.files[0]));
+
+    function setFile(f) {
+      file = f; fileName.textContent = f.name + ' (' + (f.size / 1048576).toFixed(1) + ' MB)';
+      go.disabled = false; status.textContent = '';
+    }
+
+    go.addEventListener('click', async () => {
+      if (!file) return;
+      go.disabled = true; status.className = 'status'; status.textContent = '上传中…';
+      bar.style.display = 'block'; barI.style.width = '5%';
+      try {
+        const fd = new FormData(); fd.append('model', file);
+        const r = await fetch('/api/dataset', { method: 'POST', body: fd });
+        if (!r.ok) throw new Error((await r.json()).detail || r.statusText);
+        poll((await r.json()).dataset_id);
+      } catch (e) {
+        status.className = 'status err'; status.textContent = '失败：' + e.message; go.disabled = false;
+      }
+    });
+
+    function poll(id) {
+      const tick = async () => {
+        try {
+          const s = await (await fetch('/api/dataset/' + id)).json();
+          if (s.status === 'queued' || s.status === 'running') {
+            barI.style.width = Math.max(5, s.progress * 100) + '%';
+            status.textContent = '渲染中… ' + (s.progress * 100).toFixed(0) + '%（50 视角 × 4 模态）';
+            setTimeout(tick, 2000);
+          } else if (s.status === 'done') {
+            barI.style.width = '100%';
+            status.className = 'status';
+            status.innerHTML = '✓ 完成 · <a href="' + s.download + '" download>下载数据集 (zip)</a>';
+            go.disabled = false;
+          } else {
+            status.className = 'status err';
+            status.textContent = '失败：' + (s.error || '');
+            go.disabled = false;
+          }
+        } catch (e) {
+          status.className = 'status err'; status.textContent = '状态查询失败：' + e.message; go.disabled = false;
+        }
+      };
+      tick();
+    }
+  </script>
+</body>
+</html>

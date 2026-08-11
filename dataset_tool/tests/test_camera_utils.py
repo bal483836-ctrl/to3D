@@ -7,12 +7,12 @@ import sys
 
 import numpy as np
 
-# 让测试能 import tools/camera_utils
-_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
-sys.path.insert(0, os.path.join(_ROOT, "tools"))
+# 让测试能 import camera_utils（工具根目录）
+_TOOL = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
+sys.path.insert(0, _TOOL)
 import camera_utils as cu  # noqa: E402
 
-REF = os.path.join(_ROOT, "datasets", "reference_meta_data.json")
+REF = os.path.join(_TOOL, "reference_meta_data.json")
 
 
 def test_opencv_to_blender_flips_y_z():

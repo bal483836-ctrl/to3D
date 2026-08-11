@@ -27,6 +27,7 @@ from mathutils import Matrix
 # 让 Blender 的 Python 能找到同目录的 camera_utils
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 import camera_utils as cu  # noqa: E402
+from meta_utils import build_artifact_meta  # noqa: E402
 
 
 def _parse_args() -> argparse.Namespace:
@@ -183,23 +184,7 @@ def _rename_frame_outputs(out_dir: str, idx: int, outs: dict) -> None:
 
 def _write_meta(meta: dict, out_dir: str) -> None:
     """写出与参考结构一致的 meta_data.json，补充各模态路径。"""
-    out = {
-        "camera_model": meta["camera_model"],
-        "height": meta["height"],
-        "width": meta["width"],
-        "worldtogt": meta["worldtogt"],
-        "scene_box": meta["scene_box"],
-        "frames": [],
-    }
-    for i, f in enumerate(meta["frames"]):
-        out["frames"].append({
-            "rgb_path": f"{i}_colors.png",
-            "depth_path": f"{i}_depth.exr",
-            "normal_path": f"{i}_normal.png",
-            "mask_path": f"{i}_mask.png",
-            "camtoworld": f["camtoworld"],   # 原样，不修改
-            "intrinsics": f["intrinsics"],   # 原样，不修改
-        })
+    out = build_artifact_meta(meta)
     with open(os.path.join(out_dir, "meta_data.json"), "w", encoding="utf-8") as fp:
         json.dump(out, fp, indent=4, ensure_ascii=False)
 

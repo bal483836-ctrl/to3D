@@ -120,12 +120,12 @@ export TO3D_HUNYUAN_ENDPOINT=https://your-hunyuan3d-service
 - **图文联合条件的训练/adapter 方案**：
   [`docs/接入混元3D与联合条件方案.md`](docs/接入混元3D与联合条件方案.md)。
 
-## 50 视角多模态数据集（Color/Depth/Normal/Mask）
+## 50 视角多模态数据集（独立工具）
 
-生成模型后可**一键**按参考 `datasets/reference_meta_data.json` 的 50 组固定相机参数
-渲染 Color/Depth/Normal/Mask 四模态，并输出结构一致的 `meta_data.json`（需装 Blender）。
-前端有「一键生成数据集」按钮；也可命令行跑 `tools/blender_render_views.py`。
-详见 [`docs/50视角数据集生成.md`](docs/50视角数据集生成.md)。
+`dataset_tool/` 是一个**独立**小工具：**上传一个 3D 模型**，按参考的 50 组固定相机参数
+渲染 Color/Depth/Normal/Mask 四模态并输出结构一致的 `meta_data.json`（需装 Blender）。
+可在 VSCode 里单独运行（F5 选“运行：50 视角数据集工具”），与主服务解耦。
+详见 [`dataset_tool/README.md`](dataset_tool/README.md)。
 
 ## 生产部署
 

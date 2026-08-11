@@ -5,3 +5,4 @@ __pycache__/
 .pytest_cache/
 node_modules/
 to3d_outputs/
+dataset_tool/_work/

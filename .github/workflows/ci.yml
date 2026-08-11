@@ -15,9 +15,14 @@ jobs:
           python-version: "3.11"
           cache: pip
       - name: Install dependencies
-        run: pip install -r backend/requirements-dev.txt
-      - name: Run tests
+        run: |
+          pip install -r backend/requirements-dev.txt
+          pip install -r dataset_tool/requirements.txt pytest
+      - name: Run backend tests
         working-directory: backend
+        run: python -m pytest -q
+      - name: Run dataset_tool tests
+        working-directory: dataset_tool
         run: python -m pytest -q
 
   docker-build:

@@ -1,0 +1,8 @@
+# 独立工具依赖（渲染由系统 Blender 完成，故此处很轻）
+fastapi>=0.110
+uvicorn[standard]>=0.29
+python-multipart>=0.0.9
+numpy>=1.26
+
+# 开发/测试：
+# pytest>=8.0

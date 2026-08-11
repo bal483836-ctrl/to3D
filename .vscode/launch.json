@@ -13,6 +13,15 @@
       "console": "integratedTerminal"
     },
     {
+      "name": "运行：50 视角数据集工具（上传3D模型）",
+      "type": "debugpy",
+      "request": "launch",
+      "program": "${workspaceFolder}/dataset_tool/app.py",
+      "cwd": "${workspaceFolder}/dataset_tool",
+      "envFile": "${workspaceFolder}/.env",
+      "console": "integratedTerminal"
+    },
+    {
       "name": "调试：当前测试文件",
       "type": "debugpy",
       "request": "launch",

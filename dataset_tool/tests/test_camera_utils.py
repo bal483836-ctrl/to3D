@@ -17,14 +17,14 @@ REF = os.path.join(_TOOL, "reference_meta_data.json")
 
 def test_opencv_to_blender_flips_y_z():
     c2w = np.eye(4)
-    b = cu.c2w_opencv_to_blender(c2w)
+    b = np.array(cu.c2w_opencv_to_blender(c2w))  # 返回纯 list，测试里转 np
     # 相机 +Y、+Z 轴取反，+X 不变
     assert np.allclose(b[:3, 0], [1, 0, 0])
     assert np.allclose(b[:3, 1], [0, -1, 0])
     assert np.allclose(b[:3, 2], [0, 0, -1])
     # 平移不变
     c2w2 = np.eye(4); c2w2[:3, 3] = [1, 2, 3]
-    assert np.allclose(cu.c2w_opencv_to_blender(c2w2)[:3, 3], [1, 2, 3])
+    assert np.allclose(np.array(cu.c2w_opencv_to_blender(c2w2))[:3, 3], [1, 2, 3])
 
 
 def test_intrinsics_centered_zero_shift():

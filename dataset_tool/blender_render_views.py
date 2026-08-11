@@ -21,7 +21,6 @@ import os
 import sys
 
 import bpy  # 仅在 Blender 内可用
-import numpy as np
 from mathutils import Matrix
 
 # 让 Blender 的 Python 能找到同目录的 camera_utils
@@ -70,6 +69,8 @@ def _setup_render(scene, width: int, height: int, engine: str, samples: int) -> 
     scene.render.film_transparent = True  # 背景透明 → alpha 作掩码
     if engine == "CYCLES":
         scene.cycles.samples = samples
+        scene.cycles.use_denoising = False  # 部分构建无 OpenImageDenoise
+        scene.cycles.device = "CPU"
     else:
         scene.eevee.taa_render_samples = samples
     # 打开需要的渲染通道
@@ -81,30 +82,37 @@ def _setup_render(scene, width: int, height: int, engine: str, samples: int) -> 
 
 
 def _setup_compositor(scene, out_dir: str, normalize_depth: bool):
-    """搭建合成节点：把 Color/Depth/Normal/Mask 分别写文件。返回可更新的 File Output 节点。"""
+    """搭建合成节点：Color/Depth/Normal/Mask 各写入独立子目录（避免同名覆盖）。
+
+    返回 {name: (subdir, ext)}；每次渲染后由 _move_outputs 取出该子目录里的唯一文件
+    重命名为最终名。File Output 会给文件名附加帧号，故用"每模态独立子目录 + 逐视角搬出"
+    的方式保证不冲突、命名精确。
+    """
     scene.use_nodes = True
     tree = scene.node_tree
     tree.nodes.clear()
     rl = tree.nodes.new("CompositorNodeRLayers")
 
-    def file_out(name, subtype, color_depth="8", fmt="PNG"):
+    subdirs = {}
+
+    def file_out(name, color_mode="RGB", color_depth="8", fmt="PNG"):
         n = tree.nodes.new("CompositorNodeOutputFile")
-        n.label = name
-        n.base_path = out_dir
+        sub = os.path.join(out_dir, "_" + name)
+        os.makedirs(sub, exist_ok=True)
+        n.base_path = sub
+        n.file_slots[0].path = "f"
         n.format.file_format = fmt
+        n.format.color_mode = color_mode
         n.format.color_depth = color_depth
-        if fmt == "OPEN_EXR":
-            n.format.color_mode = "RGB"
+        subdirs[name] = (sub, "exr" if fmt == "OPEN_EXR" else "png")
         return n
 
-    # Color：直接用渲染 Image
-    color_out = file_out("color", "color")
-    color_out.format.color_mode = "RGBA"
+    # Color（RGBA，alpha 供掩码来源）
+    color_out = file_out("color", color_mode="RGBA")
     tree.links.new(rl.outputs["Image"], color_out.inputs[0])
 
-    # Mask：用 Alpha（film 透明背景 → 物体处 alpha=1）
-    mask_out = file_out("mask", "mask")
-    mask_out.format.color_mode = "BW"
+    # Mask：film 透明背景 → Alpha 通道，物体=1 背景=0
+    mask_out = file_out("mask", color_mode="BW")
     tree.links.new(rl.outputs["Alpha"], mask_out.inputs[0])
 
     # Normal：[-1,1] → [0,1]  (N*0.5+0.5)
@@ -116,32 +124,25 @@ def _setup_compositor(scene, out_dir: str, normalize_depth: bool):
     bias.blend_type = "ADD"
     bias.inputs[2].default_value = (0.5, 0.5, 0.5, 1.0)
     tree.links.new(scale.outputs[0], bias.inputs[1])
-    normal_out = file_out("normal", "normal")
-    normal_out.format.color_mode = "RGB"
+    normal_out = file_out("normal", color_mode="RGB")
     tree.links.new(bias.outputs[0], normal_out.inputs[0])
 
     # Depth：EXR 保真
-    depth_out = file_out("depth", "depth", color_depth="32", fmt="OPEN_EXR")
+    depth_out = file_out("depth", color_mode="RGB", color_depth="32", fmt="OPEN_EXR")
     tree.links.new(rl.outputs["Depth"], depth_out.inputs[0])
 
-    outs = {"color": color_out, "mask": mask_out, "normal": normal_out, "depth": depth_out}
-
-    depth_png = None
     if normalize_depth:
-        # 归一化到 near..far → 0..1（scene_box.near/far）
         nb = scene.get("_near", 2.0)
         fb = scene.get("_far", 6.0)
         norm = tree.nodes.new("CompositorNodeMapRange")
-        norm.inputs[1].default_value = nb  # From Min
-        norm.inputs[2].default_value = fb  # From Max
+        norm.inputs[1].default_value = nb
+        norm.inputs[2].default_value = fb
         norm.inputs[3].default_value = 0.0
         norm.inputs[4].default_value = 1.0
         tree.links.new(rl.outputs["Depth"], norm.inputs[0])
-        depth_png = file_out("depth_png", "depth")
-        depth_png.format.color_mode = "BW"
-        tree.links.new(norm.outputs[0], depth_png.inputs[0])
-        outs["depth_png"] = depth_png
-    return outs
+        dpng = file_out("depth_png", color_mode="BW")
+        tree.links.new(norm.outputs[0], dpng.inputs[0])
+    return subdirs
 
 
 def _apply_camera(cam_obj, cam_data, frame: dict, width: int, height: int) -> None:
@@ -160,26 +161,24 @@ def _apply_camera(cam_obj, cam_data, frame: dict, width: int, height: int) -> No
     cam_data.shift_y = b["shift_y"]
 
 
-def _rename_frame_outputs(out_dir: str, idx: int, outs: dict) -> None:
-    """File Output 会写成 <label>0001.png 之类，重命名为 {idx}_{modality}.ext。"""
-    mapping = {
-        "color": (f"{idx}_colors.png", ".png"),
-        "depth": (f"{idx}_depth.exr", ".exr"),
-        "normal": (f"{idx}_normal.png", ".png"),
-        "mask": (f"{idx}_mask.png", ".png"),
-        "depth_png": (f"{idx}_depth.png", ".png"),
-    }
-    for key, node in outs.items():
-        target_name, ext = mapping[key]
-        # 找到该节点本轮写出的文件（以 label 开头、对应扩展名）
-        prefix = node.label
-        for fn in os.listdir(out_dir):
-            if fn.startswith(prefix) and fn.endswith(ext):
-                src = os.path.join(out_dir, fn)
-                dst = os.path.join(out_dir, target_name)
-                if src != dst:
-                    os.replace(src, dst)
-                break
+_FINAL_NAME = {
+    "color": "{i}_colors.png",
+    "depth": "{i}_depth.exr",
+    "normal": "{i}_normal.png",
+    "mask": "{i}_mask.png",
+    "depth_png": "{i}_depth.png",
+}
+
+
+def _move_outputs(out_dir: str, idx: int, subdirs: dict) -> None:
+    """把每个模态子目录里本轮渲染出的唯一文件搬到 {idx}_{modality}.ext。"""
+    for name, (sub, ext) in subdirs.items():
+        files = [f for f in os.listdir(sub) if f.endswith("." + ext)]
+        if not files:
+            raise RuntimeError(f"视角 {idx} 的 {name} 未生成（{sub} 为空）")
+        src = os.path.join(sub, files[0])
+        dst = os.path.join(out_dir, _FINAL_NAME[name].format(i=idx))
+        os.replace(src, dst)
 
 
 def _write_meta(meta: dict, out_dir: str) -> None:
@@ -213,13 +212,20 @@ def main() -> None:
     scene.camera = cam_obj
 
     _setup_render(scene, width, height, args.engine, args.samples)
-    outs = _setup_compositor(scene, args.out, args.normalize_depth)
+    subdirs = _setup_compositor(scene, args.out, args.normalize_depth)
 
     for i, frame in enumerate(meta["frames"]):
         _apply_camera(cam_obj, cam_data, frame, width, height)
         bpy.ops.render.render(write_still=False)  # 由 File Output 节点写文件
-        _rename_frame_outputs(args.out, i, outs)
+        _move_outputs(args.out, i, subdirs)
         print(f"[render] view {i}/{len(meta['frames'])} done", flush=True)
+
+    # 清理空的模态子目录
+    for sub, _ in subdirs.values():
+        try:
+            os.rmdir(sub)
+        except OSError:
+            pass
 
     _write_meta(meta, args.out)
     print(f"[done] 共 {len(meta['frames'])} 视角 × 4 模态 → {args.out}", flush=True)

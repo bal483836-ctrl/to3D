@@ -1,26 +1,33 @@
-"""相机参数转换：OpenCV(meta_data.json) → Blender。纯 numpy，可脱离 Blender 单测。
+"""相机参数转换：OpenCV(meta_data.json) → Blender。
+
+纯 Python（不依赖 numpy），因为 Blender 内置 Python 通常没有 numpy。
+测试环境有 numpy，但本模块自身不需要。
 
 meta_data.json 约定（camera_model=OPENCV）：
 - camtoworld：4×4 相机到世界位姿，OpenCV 相机系（+X 右, +Y 下, +Z 前，看向 +Z）。
 - intrinsics：3×3，fx,fy,cx,cy（像素）。
 - 分辨率 width×height。
 
-Blender 相机系：+X 右, +Y 上, −Z 前（看向 −Z）。故 c2w 需右乘 diag(1,-1,-1,1)。
+Blender 相机系：+X 右, +Y 上, −Z 前（看向 −Z）。故 c2w 需右乘 diag(1,-1,-1,1)：
+等价于把旋转矩阵的第 2、3 列取反（平移不变）。
 """
 from __future__ import annotations
 
-import numpy as np
-
-# OpenCV 相机系 → Blender 相机系（翻转 Y、Z 轴）
-OPENCV_TO_BLENDER = np.diag([1.0, -1.0, -1.0, 1.0])
+import math
 
 
-def c2w_opencv_to_blender(c2w) -> np.ndarray:
-    """OpenCV 相机到世界矩阵 → Blender matrix_world。平移不变，仅旋转基变换。"""
-    c2w = np.asarray(c2w, dtype=float)
-    if c2w.shape != (4, 4):
+def c2w_opencv_to_blender(c2w) -> list[list[float]]:
+    """OpenCV 相机到世界矩阵 → Blender matrix_world（4×4 list）。
+
+    右乘 diag(1,-1,-1,1)：第 1、2 列(0-indexed)取反，平移列不变。
+    """
+    m = [[float(x) for x in row] for row in c2w]
+    if len(m) != 4 or any(len(r) != 4 for r in m):
         raise ValueError("camtoworld 必须是 4×4")
-    return c2w @ OPENCV_TO_BLENDER
+    for r in range(4):
+        m[r][1] = -m[r][1]
+        m[r][2] = -m[r][2]
+    return m
 
 
 def intrinsics_to_blender(
@@ -31,7 +38,7 @@ def intrinsics_to_blender(
 
     返回 dict：lens(mm)、sensor_width/height、sensor_fit、shift_x、shift_y。
     - 光心参考取 (N-1)/2（像素中心约定）：cx=cy=(N-1)/2 时 shift=0。
-    - 假定方形像素（fx≈fy）；非方形时以 sensor_fit 主轴的焦距为准。
+    - 假定方形像素（fx≈fy）。
     """
     sensor_fit = "HORIZONTAL" if width >= height else "VERTICAL"
     if sensor_fit == "HORIZONTAL":
@@ -42,7 +49,6 @@ def intrinsics_to_blender(
         lens = fy * sensor_height / height
 
     base = max(width, height)
-    # Blender：shift_x 正向左移画面内容；y 轴向上，故对图像(y 下)取反
     shift_x = ((width - 1) / 2.0 - cx) / base
     shift_y = (cy - (height - 1) / 2.0) / base
     return {
@@ -57,7 +63,7 @@ def intrinsics_to_blender(
 
 def horizontal_fov(fx: float, width: int) -> float:
     """水平视场角(弧度)，便于校验。"""
-    return float(2.0 * np.arctan(width / (2.0 * fx)))
+    return 2.0 * math.atan(width / (2.0 * fx))
 
 
 def frame_intrinsics(frame: dict) -> tuple[float, float, float, float]:

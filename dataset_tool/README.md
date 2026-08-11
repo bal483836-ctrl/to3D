@@ -16,10 +16,12 @@
    python3 -m venv .venv && source .venv/bin/activate
    pip install -r dataset_tool/requirements.txt
    ```
-3. 安装 **Blender 3.x/4.x**，让工具能找到它：
+3. 安装 **Blender 3.x/4.x** 与 **numpy**（Blender 的 glTF 导入器依赖 numpy）：
    ```bash
-   export TO3D_BLENDER_BIN=/path/to/blender     # 或把 blender 加进 PATH
+   sudo apt install -y blender python3-numpy      # Ubuntu/WSL；apt 版 Blender 用系统 python
+   export TO3D_BLENDER_BIN=/path/to/blender        # 或把 blender 加进 PATH（默认就叫 blender）
    ```
+   > 无 GPU/无显示（如 WSL、服务器）请用默认 **CYCLES** 引擎（EEVEE 需要 GL/EGL 才能离屏渲染）。
 4. 按 **F5** 选择 **“运行：50 视角数据集工具（上传3D模型）”**（见 `.vscode/launch.json`），
    或命令行：
    ```bash

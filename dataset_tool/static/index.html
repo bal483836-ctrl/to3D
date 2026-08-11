@@ -48,6 +48,12 @@
     </div>
     <input type="file" id="fileInput" accept=".glb,.gltf,.obj,.fbx,.ply" hidden />
 
+    <div style="margin-top:12px;font-size:12.5px;color:var(--muted)">
+      相机参数：<label style="color:var(--accent2);cursor:pointer;text-decoration:underline">
+        上传自定义 meta_data.json<input type="file" id="metaInput" accept=".json" hidden /></label>
+      <span id="metaName" style="font-family:var(--mono)">（默认用内置 50 视角参考）</span>
+    </div>
+
     <div class="modalities">
       <span>Color</span><span>Depth</span><span>Normal</span><span>Mask</span><span>× 50 视角</span><span>800×800</span>
     </div>
@@ -86,12 +92,21 @@
       go.disabled = false; status.textContent = '';
     }
 
+    const metaInput = document.getElementById('metaInput');
+    const metaName = document.getElementById('metaName');
+    let metaFile = null;
+    metaInput.addEventListener('change', () => {
+      metaFile = metaInput.files[0] || null;
+      metaName.textContent = metaFile ? '（' + metaFile.name + '）' : '（默认用内置 50 视角参考）';
+    });
+
     go.addEventListener('click', async () => {
       if (!file) return;
       go.disabled = true; status.className = 'status'; status.textContent = '上传中…';
       bar.style.display = 'block'; barI.style.width = '5%';
       try {
         const fd = new FormData(); fd.append('model', file);
+        if (metaFile) fd.append('meta', metaFile);
         const r = await fetch('/api/dataset', { method: 'POST', body: fd });
         if (!r.ok) throw new Error((await r.json()).detail || r.statusText);
         poll((await r.json()).dataset_id);

@@ -49,6 +49,28 @@ def test_upload_runs_and_reports_missing_blender(monkeypatch):
         assert s["status"] == "failed" and "Blender" in s["error"]
 
 
+def test_custom_meta_rejected_when_invalid(monkeypatch):
+    monkeypatch.setattr(tool_app, "find_blender", lambda: None)
+    with TestClient(tool_app.app) as client:
+        r = client.post("/api/dataset", files={
+            "model": ("m.glb", io.BytesIO(b"GLB"), "model/gltf-binary"),
+            "meta": ("meta_data.json", io.BytesIO(b"{not json"), "application/json"),
+        })
+        assert r.status_code == 400
+
+
+def test_custom_meta_accepted(monkeypatch):
+    monkeypatch.setattr(tool_app, "find_blender", lambda: None)
+    good = json.dumps({"camera_model": "OPENCV", "height": 800, "width": 800,
+                       "frames": [{"rgb_path": "0_colors.png"}]}).encode()
+    with TestClient(tool_app.app) as client:
+        r = client.post("/api/dataset", files={
+            "model": ("m.glb", io.BytesIO(b"GLB"), "model/gltf-binary"),
+            "meta": ("meta_data.json", io.BytesIO(good), "application/json"),
+        })
+        assert r.status_code == 200  # 合法 meta 被接受（随后因无 Blender 而失败，属预期）
+
+
 def test_health():
     with TestClient(tool_app.app) as client:
         assert client.get("/api/health").status_code == 200

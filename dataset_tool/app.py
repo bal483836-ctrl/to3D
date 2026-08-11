@@ -72,7 +72,7 @@ def _zip_dir(src: str, dst: str) -> None:
                 zf.write(fp, os.path.relpath(fp, src))
 
 
-async def _run(job_id: str, model_path: str) -> None:
+async def _run(job_id: str, model_path: str, meta_path: str) -> None:
     job = jobs[job_id]
     try:
         blender = find_blender()
@@ -86,7 +86,7 @@ async def _run(job_id: str, model_path: str) -> None:
         job.status = "running"
         cmd = [
             blender, "-b", "--python", BLENDER_SCRIPT, "--",
-            "--model", model_path, "--meta", REFERENCE_META, "--out", out_dir,
+            "--model", model_path, "--meta", meta_path, "--out", out_dir,
             "--engine", ENGINE, "--samples", SAMPLES,
         ]
         proc = await asyncio.create_subprocess_exec(
@@ -120,7 +120,11 @@ async def health() -> dict:
 
 
 @app.post("/api/dataset")
-async def create(model: UploadFile = File(...)) -> dict:
+async def create(
+    model: UploadFile = File(...),
+    meta: Optional[UploadFile] = File(None),
+) -> dict:
+    """上传 3D 模型（必填）+ 可选自定义 meta_data.json（不传用内置 50 视角参考）。"""
     ext = os.path.splitext(model.filename or "")[1].lower()
     if ext not in ALLOWED_EXT:
         raise HTTPException(400, f"仅支持 {sorted(ALLOWED_EXT)}，收到 {ext or '无扩展名'}")
@@ -137,9 +141,23 @@ async def create(model: UploadFile = File(...)) -> dict:
     with open(model_path, "wb") as f:
         f.write(data)
 
+    # 可选自定义 meta：校验为合法 JSON 且含 frames，再落盘；否则用内置参考
+    meta_path = REFERENCE_META
+    if meta is not None and (meta.filename or "").lower().endswith(".json"):
+        raw = await meta.read()
+        try:
+            import json
+            parsed = json.loads(raw)
+            assert isinstance(parsed.get("frames"), list) and parsed["frames"]
+        except Exception:
+            raise HTTPException(400, "meta_data.json 不合法（需含非空 frames 数组）")
+        meta_path = os.path.join(up_dir, "meta_data.json")
+        with open(meta_path, "wb") as f:
+            f.write(raw)
+
     jobs[job_id] = Job(id=job_id)
-    asyncio.create_task(_run(job_id, model_path))
-    return {"dataset_id": job_id, "status": "queued"}
+    asyncio.create_task(_run(job_id, model_path, meta_path))
+    return {"dataset_id": job_id, "status": "queued", "views": None}
 
 
 @app.get("/api/dataset/{job_id}")

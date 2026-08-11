@@ -25,7 +25,8 @@
    ```bash
    cd dataset_tool && python app.py         # 或 uvicorn app:app --port 8100
    ```
-5. 打开 http://127.0.0.1:8100 → 拖入/选择 3D 模型 → 点「生成数据集」→ 下载 zip。
+5. 打开 http://127.0.0.1:8100 → 拖入/选择 3D 模型（可选再上传自定义 `meta_data.json`，
+   不传则用内置 50 视角参考）→ 点「生成数据集」→ 下载 zip。
 
 也可纯命令行（不经网页）直接渲染：
 ```bash

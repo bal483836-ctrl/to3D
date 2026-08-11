@@ -69,8 +69,18 @@ def _setup_render(scene, width: int, height: int, engine: str, samples: int) -> 
     scene.render.film_transparent = True  # 背景透明 → alpha 作掩码
     if engine == "CYCLES":
         scene.cycles.samples = samples
-        scene.cycles.use_denoising = False  # 部分构建无 OpenImageDenoise
         scene.cycles.device = "CPU"
+        # 关闭去噪（部分 Blender 构建无 OpenImageDenoise）。4.x 去噪在视图层级，
+        # scene 与各 view_layer 都关，做到跨版本稳妥。
+        try:
+            scene.cycles.use_denoising = False
+        except Exception:
+            pass
+        for _vl in scene.view_layers:
+            try:
+                _vl.cycles.use_denoising = False
+            except Exception:
+                pass
     else:
         scene.eevee.taa_render_samples = samples
     # 打开需要的渲染通道

@@ -10,6 +10,7 @@ import asyncio
 import os
 import uuid
 
+import numpy as np
 import trimesh
 
 from app.adapters.base import GenerationResult, Hunyuan3DAdapter
@@ -57,12 +58,20 @@ def get_adapter() -> Hunyuan3DAdapter:
     return MockHunyuan3DAdapter()
 
 
+# 内部几何一律按 Z 轴朝上度量（trimesh 约定），但 glTF/GLB 规定 +Y 朝上，
+# Blender 的 glTF 导入也据此换算。不转换就会导致模型在预览器与 50 视角渲染里
+# 全部侧躺。导出时统一转成 Y-up，两种格式保持一致。
+_Z_UP_TO_Y_UP = trimesh.transformations.rotation_matrix(-np.pi / 2.0, [1.0, 0.0, 0.0])
+
+
 def _export(mesh: trimesh.Trimesh, task_id: str, tag: str) -> dict:
     os.makedirs(_OUTPUT_DIR, exist_ok=True)
     base = os.path.join(_OUTPUT_DIR, f"{task_id}_{tag}")
     glb, obj = base + ".glb", base + ".obj"
-    mesh.export(glb)
-    mesh.export(obj)
+    out = mesh.copy()
+    out.apply_transform(_Z_UP_TO_Y_UP)
+    out.export(glb)
+    out.export(obj)
     return {"glb": glb, "obj": obj}
 
 

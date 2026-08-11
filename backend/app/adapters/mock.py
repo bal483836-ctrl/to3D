@@ -38,10 +38,43 @@ def _proportion_height(hint: str | None) -> float:
     return {"tall": 1.6, "wide": 0.85}.get(hint or "", 1.15)
 
 
+# 文字数值尺寸换算出的高宽比允许区间（挡住抽取异常导致的畸形网格）
+_ASPECT_MIN, _ASPECT_MAX = 0.2, 6.0
+
+# 三足规格：足数、足半径、足所在圆周半径、足高占总高比例
+_TRIPOD_LEGS = 3
+_LEG_RADIUS, _LEG_CIRCLE, _LEG_H_FRAC = 0.09, 0.28, 0.22
+
+
+def _target_height(constraints: TextConstraints) -> float:
+    """文字规格给出的归一化高度（最大直径归一为 1.0）。
+
+    文字给了「高 / 口径」两个数值时按真实高宽比建模；否则回落到比例意图词。
+    """
+    aspect = constraints.aspect()
+    if aspect is not None:
+        return float(min(max(aspect, _ASPECT_MIN), _ASPECT_MAX))
+    return _proportion_height(constraints.proportion_hint)
+
+
+def _body_profile(H: float, z0: float, rmax: float = 0.5) -> list[tuple[float, float]]:
+    """器身母线：腹径 → 收腰 → 细颈 → 口沿 → 顶盖回到轴心。
+
+    各拐点按总高的固定比例排布（与底部形态无关），腹部略高于底部段末端 z0，
+    保证母线的 z 单调递增。
+    """
+    neck, rim = 0.18, 0.22
+    z_belly = max(0.35 * H, z0 + 0.02 * H)
+    return [
+        (rmax, z_belly), (rmax * 0.62, 0.60 * H), (neck, 0.82 * H),
+        (rim, 0.97 * H), (rim * 0.9, H), (0.0, H),
+    ]
+
+
 def _vase_profile(height: float, bottom_style: str) -> np.ndarray:
-    """生成花瓶回转母线 (radius, z)，绕 Z 轴回转成实体。"""
+    """生成回转母线 (radius, z)，绕 Z 轴回转成实体。底部形态决定起始段。"""
     H = height
-    rmax, neck, rim = 0.5, 0.18, 0.22
+    rmax = 0.5
     pts: list[tuple[float, float]] = []
     if bottom_style == "ring_foot":
         # 圈足：底部中心内凹，靠外圈环着地
@@ -50,20 +83,67 @@ def _vase_profile(height: float, bottom_style: str) -> np.ndarray:
             (0.0, h_recess), (r_inner, h_recess), (r_inner, 0.0),
             (r_outer, 0.0), (r_outer, 0.05 * H), (0.36, 0.11 * H),
         ]
+        z0 = 0.11 * H
+    elif bottom_style == "pointed":
+        # 尖底：自轴心一点起锥形张开，着地面积近乎为零
+        pts += [(0.0, 0.0), (0.18, 0.10 * H), (0.34, 0.20 * H)]
+        z0 = 0.20 * H
+    elif bottom_style == "round":
+        # 圆底：四分之一椭圆弧，着地为一小片球冠，半径随高度快速增大
+        arc_h = 0.30 * H
+        for t in np.linspace(0.0, np.pi / 2.0, 10)[:-1]:
+            pts.append((float(rmax * np.sin(t)), float(arc_h * (1.0 - np.cos(t)))))
+        z0 = arc_h
+    elif bottom_style == "base":
+        # 底座：外扩的台座，向上收一级台阶后才接器身
+        pts += [
+            (0.0, 0.0), (0.62, 0.0), (0.62, 0.045 * H),
+            (0.40, 0.075 * H), (0.36, 0.13 * H),
+        ]
+        z0 = 0.13 * H
     else:  # flat / 其它 → 平底
         pts += [(0.0, 0.0), (rmax * 0.72, 0.0)]
-    # 瓶身 → 收腰 → 细颈 → 口沿 → 顶盖回到轴
-    pts += [
-        (rmax, 0.35 * H), (rmax * 0.62, 0.60 * H), (neck, 0.82 * H),
-        (rim, 0.97 * H), (rim * 0.9, H), (0.0, H),
-    ]
+        z0 = 0.0
+    pts += _body_profile(H, z0, rmax)
     return np.array(pts, dtype=float)
 
 
-def _build_mesh(constraints: TextConstraints, bottom_style: str) -> trimesh.Trimesh:
-    height = _proportion_height(constraints.proportion_hint)
-    profile = _vase_profile(height, bottom_style)
-    mesh = trimesh.creation.revolve(profile, sections=64)
+def _build_tripod(height: float) -> trimesh.Trimesh:
+    """三足器（鬲/鼎形）：圆底器身 + 三条等分立足，足底着地。"""
+    H = height
+    leg_h = _LEG_H_FRAC * H
+    body_h = H - leg_h
+    # 器身：圆底钵体，整体抬到足高之上
+    profile = _vase_profile(body_h, "round")
+    body = trimesh.creation.revolve(profile, sections=64)
+    body.apply_translation([0.0, 0.0, leg_h - body.bounds[0][2]])
+
+    parts = [body]
+    for i in range(_TRIPOD_LEGS):
+        ang = 2.0 * np.pi * i / _TRIPOD_LEGS + np.pi / 2.0
+        # 足略微上探进器身，保证外观相接
+        leg = trimesh.creation.cylinder(
+            radius=_LEG_RADIUS, height=leg_h * 1.25, sections=24
+        )
+        leg.apply_translation([
+            _LEG_CIRCLE * np.cos(ang), _LEG_CIRCLE * np.sin(ang), leg_h * 1.25 / 2.0,
+        ])
+        parts.append(leg)
+    return trimesh.util.concatenate(parts)
+
+
+def _build_mesh(
+    constraints: TextConstraints,
+    bottom_style: str,
+    height: float | None = None,
+) -> trimesh.Trimesh:
+    """按底部形态与目标高度构网格。height 为 None 时用比例意图词推导。"""
+    if height is None:
+        height = _proportion_height(constraints.proportion_hint)
+    if bottom_style == "tripod":
+        mesh = _build_tripod(height)
+    else:
+        mesh = trimesh.creation.revolve(_vase_profile(height, bottom_style), sections=64)
     # 移到原点附近，底面贴 z=0
     mesh.apply_translation(-mesh.bounds[0] * np.array([0, 0, 1.0]))
     return mesh
@@ -98,7 +178,14 @@ class MockHunyuan3DAdapter(Hunyuan3DAdapter):
             bottom = constraints.bottom_type or "flat"
         else:
             bottom = "flat"  # 图像不可得 + 文字引导不足 → 欠还原
-        mesh = _build_mesh(constraints, bottom)
+        # 精确数值尺寸(高/口径)是文字独有信息——图像只给得出比例、给不出绝对尺寸，
+        # 因此需足够的文字引导才会被联合生成采纳，否则沿用图像推得的默认比例。
+        height = (
+            _target_height(constraints)
+            if text_strong
+            else _proportion_height(constraints.proportion_hint)
+        )
+        mesh = _build_mesh(constraints, bottom, height)
 
         # 纹理/材质：花纹与釉面高光在图像中常不可靠，需足够文字引导才被联合采纳
         metal, rough = _material_pbr(constraints)
@@ -121,7 +208,7 @@ class MockHunyuan3DAdapter(Hunyuan3DAdapter):
     def build_reference(self, constraints: TextConstraints) -> GenerationResult:
         """规格重建参照（仅用于自检，不交付）。"""
         bottom = constraints.bottom_type or "flat"
-        mesh = _build_mesh(constraints, bottom)
+        mesh = _build_mesh(constraints, bottom, _target_height(constraints))
         metal, rough = _material_pbr(constraints)
         tex = TextureDescriptor(
             patterns=list(constraints.patterns),
@@ -138,9 +225,15 @@ class MockHunyuan3DAdapter(Hunyuan3DAdapter):
         reference: GenerationResult,
         constraints: TextConstraints,
     ) -> GenerationResult:
-        # 依据文字约束重建被误判的几何区域（如底部）
+        # 依据文字约束重建被误判的几何区域（底部形态 / 比例尺寸）
         bottom = constraints.bottom_type or "flat"
-        mesh = _build_mesh(constraints, bottom)
+        if {"height", "width", "shape"} & set(focus):
+            height = _target_height(constraints)  # 按文字规格重建比例
+        else:
+            # 非比例维度的修正不应改动已有比例，沿用当前产物的归一化高宽比
+            ex = result.mesh.extents
+            height = float(ex[2] / (max(ex[0], ex[1]) or 1.0))
+        mesh = _build_mesh(constraints, bottom, height)
         return GenerationResult(
             mesh=mesh,
             texture=result.texture,

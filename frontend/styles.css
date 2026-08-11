@@ -84,6 +84,9 @@ input[type=range]{width:100%;accent-color:var(--merge)}
 .tag.text{background:var(--txt-soft);color:var(--txt)}
 .tag.image{background:var(--img-soft);color:var(--img)}
 .tag.low_confidence{background:var(--surface-2);color:var(--muted)}
+.tag.kept{background:rgba(230,164,78,.16);color:var(--warn)}
+.report .note{font-size:11.5px;line-height:1.55;color:var(--warn);background:rgba(230,164,78,.09);
+  border-left:2px solid var(--warn);border-radius:0 6px 6px 0;padding:7px 10px;margin:0 0 12px}
 
 .decision{background:var(--surface);border:1.5px solid var(--warn);border-radius:14px;padding:16px;margin-bottom:14px}
 .decision h4{margin:0 0 10px;color:var(--warn);font-size:14px}

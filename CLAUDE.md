@@ -22,7 +22,7 @@
 ```bash
 make install      # 建 venv + 装依赖
 make dev          # 本地热重载 http://127.0.0.1:8000
-make test         # 运行测试（应 22 passed）
+make test         # 运行测试（应 68 passed）
 make docker-up    # 容器启动 http://127.0.0.1:8000
 ./scripts/dev.sh  # 一条命令起本地服务
 ```
@@ -31,7 +31,12 @@ make docker-up    # 容器启动 http://127.0.0.1:8000
 - 适配器三选一：`TO3D_ADAPTER=mock`(无GPU) | `tencent`(腾讯云API,无需GPU,
   见 `docs/接入腾讯云API.md`) | `http`(自建GPU桥接,见 `docs/接入混元3D与联合条件方案.md`)。
 - 六维：器型/花纹/底部/高度/宽度/材质。冲突仲裁：有对应视角图→以图为准；
-  无图但文字明确→提高文字引导修正。
+  无图但文字明确→提高文字引导修正。**例外**：文字给了「高+口径」数值时，高/宽以文为准
+  （照片无比例尺，且正图必填，否则数值规格永远进不了修正闭环）。
+- 底部形态七类（平底/圈足/三足/多足/尖底/圆底/底座）全在网格上真实测量，见
+  `comparison._bottom_shape`；新增形态需同时改 mock 的建模与该识别函数，并跑往返测试。
+- 坐标轴：内部度量 Z-up，**导出 GLB/OBJ 时转 Y-up**（glTF 规范，Blender 同此），
+  见 `orchestrator._export`；漏转会让预览与 50 视角渲染全部侧躺。
 - 修改后务必 `make test` 保持通过；改前端交互建议用 Playwright 走一遍真实流程。
 
 ## 边界

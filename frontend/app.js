@@ -147,23 +147,34 @@ function renderStages(s) {
   }).join('');
 }
 
+// 未达阈值但仲裁为「以图为准」的维度：差异被有意保留，不是待修正项
+const isKeptDiff = (d) => !d.passed && d.authority === 'image';
+
 function renderReport(rep) {
   const box = document.getElementById('report'); box.hidden = false;
   const rows = rep.dimensions.map((d) => {
     const [zh, en] = DIM_LABELS[d.dimension];
-    const color = d.passed ? 'var(--good)' : 'var(--bad)';
-    const authTxt = { image: '以图为准', text: '以文校正', low_confidence: '低置信' }[d.authority];
+    const color = d.passed ? 'var(--good)' : (isKeptDiff(d) ? 'var(--warn)' : 'var(--bad)');
+    const authTxt = isKeptDiff(d) ? '以图为准 · 保留差异'
+      : { image: '以图为准', text: '以文校正', low_confidence: '低置信' }[d.authority];
     return `<div class="dimrow">
         <div class="nm">${zh}<small>${en}</small></div>
         <div class="bar"><i style="width:${(d.score * 100).toFixed(0)}%;background:${color}"></i></div>
         <div class="v">${d.score.toFixed(2)}</div>
       </div>
-      <div class="auth"><span class="tag ${d.authority}">${authTxt}</span> ${d.detail}</div>`;
+      <div class="auth"><span class="tag ${d.authority}${isKeptDiff(d) ? ' kept' : ''}">${authTxt}</span> ${d.detail}</div>`;
   }).join('');
+  // 「已一致」不等于六维全绿：以图为准而保留的差异要说清楚，否则红条与结论看着矛盾
+  const kept = rep.dimensions.filter(isKeptDiff);
+  const keptTxt = kept.length
+    ? `<div class="note">${kept.length} 项未达阈值但有对应视角图，以图为准保留差异，未触发修正：` +
+      `${kept.map((d) => DIM_LABELS[d.dimension][0]).join('、')}</div>`
+    : '';
   const st = rep.passed ? '<span style="color:var(--good)">已一致</span>'
     : `<span style="color:var(--warn)">待修正 ${rep.actions.length} 项</span>`;
   box.innerHTML = `<h4>六维一致性差异报告</h4>
-    <div class="ov">overall ${rep.overall.toFixed(2)} · 阈值 ${rep.threshold.toFixed(2)} · ${st}</div>${rows}`;
+    <div class="ov">overall ${rep.overall.toFixed(2)} · 阈值 ${rep.threshold.toFixed(2)} · ${st}</div>
+    ${keptTxt}${rows}`;
 }
 
 function renderDecision(rep) {

@@ -1,7 +1,20 @@
-"""集中式配置：全部通过环境变量注入，便于容器化与多环境部署。"""
+"""集中式配置：全部通过环境变量注入，便于容器化与多环境部署。
+
+启动时自动加载仓库根目录的 .env（本地 make dev / uvicorn / VSCode 均生效）。
+容器里由 docker compose 注入环境变量，二者兼容。
+"""
 from __future__ import annotations
 
 import os
+
+# 自动加载根目录 .env（backend/app/config.py → 上两级为仓库根）
+_ENV_PATH = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", ".env"))
+try:
+    from dotenv import load_dotenv
+
+    load_dotenv(_ENV_PATH)
+except ImportError:  # 未装 python-dotenv 时静默跳过（Docker 用环境变量注入）
+    pass
 
 
 def _bool(name: str, default: bool) -> bool:

@@ -24,6 +24,14 @@ from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
 HERE = os.path.dirname(os.path.abspath(__file__))
+
+# 自动加载本目录 .env（配置 Blender 路径等），未装 python-dotenv 时跳过
+try:
+    from dotenv import load_dotenv
+
+    load_dotenv(os.path.join(HERE, ".env"))
+except ImportError:
+    pass
 BLENDER_SCRIPT = os.path.join(HERE, "blender_render_views.py")
 REFERENCE_META = os.path.join(HERE, "reference_meta_data.json")
 

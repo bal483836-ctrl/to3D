@@ -127,6 +127,11 @@ export TO3D_HUNYUAN_ENDPOINT=https://your-hunyuan3d-service
 可在 VSCode 里单独运行（F5 选“运行：50 视角数据集工具”），与主服务解耦。
 详见 [`dataset_tool/README.md`](dataset_tool/README.md)。
 
+## 部署（生成 3D 模型）
+
+一份从零到出模型的完整部署指南（选后端 mock/tencent/http → 装依赖 → 配置 →
+本地/Docker/生产 → 验证）见 [`docs/部署指南.md`](docs/部署指南.md)。
+
 ## 生产部署
 
 主服务(CPU) + 混元桥接(GPU) 两段式部署，完整清单见

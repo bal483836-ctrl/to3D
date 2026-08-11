@@ -83,13 +83,29 @@ make install && make dev     # 或直接 ./scripts/dev.sh
 可观察进度 `图文联合生成 → 一致性自检 → 定向修正 → 完成`，报告从「待修正」收敛到
 「已一致」，并在右侧预览生成的 3D 模型。
 
-配置（复制 `.env.example` 为 `.env` 按需改）：`TO3D_ADAPTER`（mock/http）、
-`TO3D_HUNYUAN_ENDPOINT`、`TO3D_OUTPUT_DIR`。
+### 配置（`.env` 自动加载）
+
+```bash
+cp .env.example .env      # 改 TO3D_ADAPTER / 凭据等，启动时自动读取
+```
+
+服务启动即加载仓库根的 `.env`（`make dev` / Docker / VSCode 均生效），
+**已存在的环境变量优先**于文件；`TO3D_ENV_FILE` 可指定其它路径。
+
+确认配置真的生效（而不是还在跑占位模型）：
+
+```bash
+curl -s localhost:8000/api/health
+# {"status":"ok","adapter":"tencent","is_mock":false,"env_file":"/path/to/.env"}
+```
+
+`is_mock: true` 表示当前产出的是**占位网格**（不读取上传图片的内容），
+启动日志也会给出同样的告警。要接真实模型见下节。
 
 ## 测试
 
 ```bash
-make test        # 或 cd backend && python -m pytest -q   → 68 passed
+make test        # 或 cd backend && python -m pytest -q   → 87 passed
 ```
 
 覆盖：中文约束抽取（含「高17.5、口径16.5公分」这类数值尺寸）、网格底部形态与比例的
@@ -127,10 +143,17 @@ export TO3D_HUNYUAN_ENDPOINT=https://your-hunyuan3d-service
 
 ## 50 视角多模态数据集（独立工具）
 
-`dataset_tool/` 是一个**独立**小工具：**上传一个 3D 模型**，按参考的 50 组固定相机参数
-渲染 Color/Depth/Normal/Mask 四模态并输出结构一致的 `meta_data.json`（需装 Blender）。
-可在 VSCode 里单独运行（F5 选“运行：50 视角数据集工具”），与主服务解耦。
-详见 [`dataset_tool/README.md`](dataset_tool/README.md)。
+两条入口，同一套渲染：
+
+1. **产品内**：生成完成后点「生成后续任务：50 视角数据集」；或在左侧面板
+   **直接上传已有 3D 模型**（GLB/GLTF/OBJ/FBX/PLY，`POST /api/v1/dataset/upload`），
+   无需先跑一次生成。
+2. **独立工具** `dataset_tool/`：与主服务解耦，可在 VSCode 里单独运行
+   （F5 选“运行：50 视角数据集工具”），详见 [`dataset_tool/README.md`](dataset_tool/README.md)。
+
+两者都按参考的 50 组固定相机参数渲染 Color/Depth/Normal/Mask 四模态，
+输出结构一致的 `meta_data.json`。**需服务端装有 Blender**（`TO3D_BLENDER_BIN`），
+未安装时任务会明确报错而非静默失败。
 
 ## 部署（生成 3D 模型）
 
@@ -159,6 +182,9 @@ export TO3D_HUNYUAN_ENDPOINT=https://your-hunyuan3d-service
 | GET  | `/api/v1/generation/{id}` | 查询任务状态与差异报告（鉴权） |
 | POST | `/api/v1/generation/{id}/decision` | 人在环决策（鉴权） |
 | GET  | `/api/v1/generation/{id}/mesh` | 下载 GLB（鉴权） |
+| POST | `/api/v1/generation/{id}/dataset` | 用刚生成的产物跑 50 视角数据集（鉴权） |
+| POST | `/api/v1/dataset/upload` | **上传已有 3D 模型**跑 50 视角数据集（鉴权） |
+| GET  | `/api/v1/dataset/{id}` · `/download` | 数据集状态 / 下载 zip |
 | WS   | `/ws/tasks/{id}?token=` | 实时进度推送 |
 | GET  | `/api/health` · `/api/ready` · `/metrics` | 存活 / 就绪 / 指标 |
 

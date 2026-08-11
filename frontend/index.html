@@ -52,6 +52,16 @@
 
       <button id="genBtn" class="gen">✦ 立即生成</button>
       <div id="err" class="err"></div>
+
+      <!-- 已有模型：跳过生成，直接跑后续任务 -->
+      <div class="upl">
+        <label class="lbl">已有 3D 模型？直接生成 50 视角数据集</label>
+        <input type="file" id="upFile" accept=".glb,.gltf,.obj,.fbx,.ply" hidden />
+        <button id="upBtn" class="ds-btn">⬆ 上传模型（GLB/GLTF/OBJ/FBX/PLY）</button>
+        <div id="upName" class="upl-name"></div>
+        <div id="upStatus" class="ds-status"></div>
+        <p class="hint">无需先跑生成。渲染 Color/Depth/Normal/Mask 四模态，需服务端装有 Blender。</p>
+      </div>
     </section>
 
     <!-- 中间：多视图上传 -->

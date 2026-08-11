@@ -6,11 +6,21 @@ services:
     image: to3d:latest
     ports:
       - "8000:8000"
+    # 下列 ${...} 由 docker compose 自动从仓库根的 .env 取值（与本地 make dev 同一份文件）。
+    # 镜像里不含 .env——密钥只经环境变量注入，不烘进镜像层。
     environment:
-      # mock(默认,无GPU) 或 http(接真实混元3D服务)
+      # mock(默认,无GPU) | tencent(腾讯云API) | http(接真实混元3D服务)
       TO3D_ADAPTER: ${TO3D_ADAPTER:-mock}
       TO3D_HUNYUAN_ENDPOINT: ${TO3D_HUNYUAN_ENDPOINT:-}
       TO3D_OUTPUT_DIR: /data/outputs
+      TO3D_API_KEY: ${TO3D_API_KEY:-}
+      # 腾讯云混元生3D（TO3D_ADAPTER=tencent 时必填）
+      TENCENT_SECRET_ID: ${TENCENT_SECRET_ID:-}
+      TENCENT_SECRET_KEY: ${TENCENT_SECRET_KEY:-}
+      TENCENT_REGION: ${TENCENT_REGION:-ap-guangzhou}
+      TENCENT_RESULT_FORMAT: ${TENCENT_RESULT_FORMAT:-GLB}
+      TENCENT_COS_BUCKET: ${TENCENT_COS_BUCKET:-}
+      TENCENT_COS_REGION: ${TENCENT_COS_REGION:-}
     volumes:
       - to3d_outputs:/data/outputs
     restart: unless-stopped

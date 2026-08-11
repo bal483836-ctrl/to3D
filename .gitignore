@@ -1,4 +1,8 @@
 scratchpad/
+# 本地配置：含云端密钥，绝不入库（模板见 .env.example）
+.env
+.env.*
+!.env.example
 .venv/
 __pycache__/
 *.pyc

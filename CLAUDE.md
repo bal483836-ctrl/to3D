@@ -22,7 +22,7 @@
 ```bash
 make install      # 建 venv + 装依赖
 make dev          # 本地热重载 http://127.0.0.1:8000
-make test         # 运行测试（应 68 passed）
+make test         # 运行测试（应 87 passed）
 make docker-up    # 容器启动 http://127.0.0.1:8000
 ./scripts/dev.sh  # 一条命令起本地服务
 ```
@@ -30,6 +30,11 @@ make docker-up    # 容器启动 http://127.0.0.1:8000
 ## 关键约定
 - 适配器三选一：`TO3D_ADAPTER=mock`(无GPU) | `tencent`(腾讯云API,无需GPU,
   见 `docs/接入腾讯云API.md`) | `http`(自建GPU桥接,见 `docs/接入混元3D与联合条件方案.md`)。
+- 配置：启动时自动加载仓库根 `.env`（`app/dotenv.py`，真实环境变量优先）。
+  **`app/config.py` 的 `os.getenv` 在导入时求值，加载必须早于它**，顺序别动。
+  测试由 `backend/conftest.py` 指向不存在的 env 文件保持隔离——否则开发者本地
+  `.env` 里的 `TO3D_API_KEY` 会让测试 401。
+  排查"是不是还在跑占位模型"：`curl /api/health` 看 `is_mock` / `env_file`。
 - 六维：器型/花纹/底部/高度/宽度/材质。冲突仲裁：有对应视角图→以图为准；
   无图但文字明确→提高文字引导修正。**例外**：文字给了「高+口径」数值时，高/宽以文为准
   （照片无比例尺，且正图必填，否则数值规格永远进不了修正闭环）。

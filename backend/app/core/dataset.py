@@ -23,6 +23,41 @@ BLENDER_SCRIPT = os.path.join(_TOOL, "blender_render_views.py")
 REFERENCE_META = os.path.join(_TOOL, "reference_meta_data.json")
 
 
+# Blender 脚本支持的导入格式（与 blender_render_views._import_model 保持一致）
+ALLOWED_MODEL_EXT = {".glb", ".gltf", ".obj", ".fbx", ".ply"}
+
+
+class ModelUploadError(ValueError):
+    """上传的模型不合法（格式/大小/空文件）。由 API 层转成 4xx。"""
+
+
+def save_uploaded_model(dataset_id: str, filename: str, data: bytes) -> str:
+    """校验并落盘用户上传的模型，返回本地路径。
+
+    只从客户端文件名里取扩展名，落盘名固定为 `model<ext>`——客户端文件名
+    不可信（`../` 之类会写穿目录）。
+    """
+    ext = os.path.splitext(filename or "")[1].lower()
+    if ext not in ALLOWED_MODEL_EXT:
+        raise ModelUploadError(
+            f"仅支持 {sorted(ALLOWED_MODEL_EXT)}，收到 {ext or '无扩展名'}"
+        )
+    if not data:
+        raise ModelUploadError("空文件")
+    if len(data) > settings.max_model_bytes:
+        raise ModelUploadError(
+            f"模型 {len(data)} 字节，超过上限 {settings.max_model_bytes}"
+            "（可调 TO3D_MAX_MODEL_BYTES）"
+        )
+    up_dir = os.path.join(settings.dataset_dir, dataset_id, "input")
+    os.makedirs(up_dir, exist_ok=True)
+    path = os.path.join(up_dir, f"model{ext}")
+    with open(path, "wb") as fh:
+        fh.write(data)
+    logger.info("已接收上传模型 %s → %s (%d 字节)", dataset_id, path, len(data))
+    return path
+
+
 @dataclass
 class DatasetJob:
     dataset_id: str

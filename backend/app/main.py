@@ -14,9 +14,11 @@ from contextlib import asynccontextmanager
 from fastapi import (
     Depends,
     FastAPI,
+    File,
     Header,
     HTTPException,
     Request,
+    UploadFile,
     WebSocket,
     WebSocketDisconnect,
 )
@@ -24,6 +26,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
 
+from app import config
 from app.cleanup import cleanup_loop
 from app.config import settings
 from app.core import orchestrator
@@ -51,8 +54,21 @@ _background_tasks: set[asyncio.Task] = set()
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     setup_logging()
+    # 配置来源要显式说出来：此前 .env 从不被读取，用户填了 tencent 也静默跑 mock
+    if config.ENV_FILE:
+        logger.info("已加载配置文件 %s（生效 %d 项；已存在的环境变量优先）",
+                    config.ENV_FILE, config.ENV_KEYS_APPLIED)
+    else:
+        logger.info("未找到 .env（查找路径 %s），仅使用进程环境变量。"
+                    "如需接真实模型：cp .env.example .env 并填写",
+                    os.getenv("TO3D_ENV_FILE") or config.DEFAULT_ENV_PATH)
     logger.info("启动：adapter=%s db=%s 并发上限=%d",
                 settings.adapter, settings.db_url or "memory", settings.max_concurrency)
+    if settings.adapter == "mock":
+        logger.warning(
+            "当前为 mock 适配器：产出的是占位网格（不读取你上传的图片内容），"
+            "仅供无 GPU 时跑通链路。接真实模型请设 TO3D_ADAPTER=tencent 或 http"
+        )
     stop = asyncio.Event()
     cleaner = asyncio.create_task(cleanup_loop(stop))
     try:
@@ -77,12 +93,21 @@ if settings.allowed_origins:
     )
 
 
+# 模型上传走单独的大小上限：3D 文件通常远大于 JSON 请求体
+_MODEL_UPLOAD_PATH = "/api/v1/dataset/upload"
+
+
 @app.middleware("http")
 async def _observe_and_limit(request: Request, call_next):
     request_id_var.set(uuid.uuid4().hex[:12])
     # 请求体大小限制
+    limit = (
+        settings.max_model_bytes
+        if request.url.path == _MODEL_UPLOAD_PATH
+        else settings.max_request_bytes
+    )
     cl = request.headers.get("content-length")
-    if cl and cl.isdigit() and int(cl) > settings.max_request_bytes:
+    if cl and cl.isdigit() and int(cl) > limit:
         return JSONResponse({"detail": "请求体过大"}, status_code=413)
     try:
         response = await call_next(request)
@@ -98,8 +123,17 @@ async def _observe_and_limit(request: Request, call_next):
 # --- 健康 / 就绪 / 指标 -------------------------------------------------------
 @app.get("/api/health")
 async def health() -> dict:
-    """存活探针：进程在跑即 200。"""
-    return {"status": "ok", "adapter": settings.adapter}
+    """存活探针：进程在跑即 200。
+
+    附带配置来源与 mock 标记，方便一眼确认「.env 到底有没有被读到」——
+    不必再去翻启动日志猜为什么还在跑占位模型。
+    """
+    return {
+        "status": "ok",
+        "adapter": settings.adapter,
+        "is_mock": settings.adapter == "mock",
+        "env_file": config.ENV_FILE,
+    }
 
 
 @app.get("/api/ready")
@@ -107,7 +141,13 @@ async def ready():
     """就绪探针：依赖就位才 200（k8s readinessProbe 用）。"""
     if settings.adapter == "http" and not settings.hunyuan_endpoint:
         return JSONResponse({"status": "not_ready", "reason": "缺少 TO3D_HUNYUAN_ENDPOINT"}, 503)
-    return {"status": "ready", "adapter": settings.adapter}
+    if settings.adapter == "tencent" and not (
+        settings.tencent_secret_id and settings.tencent_secret_key
+    ):
+        return JSONResponse(
+            {"status": "not_ready", "reason": "缺少 TENCENT_SECRET_ID / TENCENT_SECRET_KEY"}, 503
+        )
+    return {"status": "ready", "adapter": settings.adapter, "env_file": config.ENV_FILE}
 
 
 @app.get("/metrics")
@@ -206,6 +246,30 @@ async def create_dataset(task_id: str) -> dict:
     _background_tasks.add(t)
     t.add_done_callback(_background_tasks.discard)
     return {"dataset_id": ds_id, "status": "queued"}
+
+
+@app.post(_MODEL_UPLOAD_PATH, dependencies=[Depends(require_api_key)])
+async def upload_dataset(model: UploadFile = File(...)) -> dict:
+    """直接上传已有 3D 模型（GLB/GLTF/OBJ/FBX/PLY）跑 50 视角数据集。
+
+    与 `/generation/{id}/dataset` 的区别只是模型来源：那条路径用本服务刚生成的
+    产物，这条用用户手上已有的模型，无需先跑一次生成。后续查询/下载共用同一组接口。
+    """
+    from app.core import dataset
+
+    data = await model.read()
+    ds_id = dataset.new_dataset_id()
+    try:
+        model_path = dataset.save_uploaded_model(ds_id, model.filename or "", data)
+    except dataset.ModelUploadError as e:
+        raise HTTPException(400, str(e))
+
+    dataset._jobs[ds_id] = dataset.DatasetJob(dataset_id=ds_id)
+    t = asyncio.create_task(dataset.run_dataset_job(ds_id, model_path))
+    _background_tasks.add(t)
+    t.add_done_callback(_background_tasks.discard)
+    logger.info("上传模型创建数据集任务 %s（源文件 %s）", ds_id, model.filename)
+    return {"dataset_id": ds_id, "status": "queued", "source": "upload"}
 
 
 @app.get("/api/v1/dataset/{dataset_id}", dependencies=[Depends(require_api_key)])

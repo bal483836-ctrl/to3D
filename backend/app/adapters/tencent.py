@@ -56,10 +56,16 @@ class TencentCloudAdapter(Hunyuan3DAdapter):
     # --- 云端调用（可在测试中替换 _call_api / _download_mesh 以避免真实网络）----
     def _get_client(self):
         if self._client is None:
-            from tencentcloud.common import credential
-            from tencentcloud.common.common_client import CommonClient
-            from tencentcloud.common.profile.client_profile import ClientProfile
-            from tencentcloud.common.profile.http_profile import HttpProfile
+            try:
+                from tencentcloud.common import credential
+                from tencentcloud.common.common_client import CommonClient
+                from tencentcloud.common.profile.client_profile import ClientProfile
+                from tencentcloud.common.profile.http_profile import HttpProfile
+            except ImportError as e:  # 缺 SDK 时给出可直接照做的指引
+                raise RuntimeError(
+                    "缺少腾讯云 SDK，无法走真实生成路径。请先安装："
+                    "pip install -r backend/requirements-tencent.txt"
+                ) from e
 
             cred = credential.Credential(
                 settings.tencent_secret_id, settings.tencent_secret_key
@@ -89,7 +95,13 @@ class TencentCloudAdapter(Hunyuan3DAdapter):
         """把 data-uri 图片上传腾讯云 COS，返回公网 URL。测试可覆盖此方法。"""
         import uuid
 
-        from qcloud_cos import CosConfig, CosS3Client
+        try:
+            from qcloud_cos import CosConfig, CosS3Client
+        except ImportError as e:
+            raise RuntimeError(
+                "多图需先上传 COS 取公网 URL，但缺少 COS SDK。请安装："
+                "pip install -r backend/requirements-tencent.txt"
+            ) from e
 
         if self._cos is None:
             cfg = CosConfig(

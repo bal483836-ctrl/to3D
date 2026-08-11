@@ -1,7 +1,18 @@
-"""集中式配置：全部通过环境变量注入，便于容器化与多环境部署。"""
+"""集中式配置：全部通过环境变量注入，便于容器化与多环境部署。
+
+导入本模块时会**先**加载仓库根的 `.env`（真实环境变量优先），再读取各项配置——
+下面所有 `os.getenv` 都在类体里、也就是导入时求值，顺序不能反。
+"""
 from __future__ import annotations
 
 import os
+
+from app.dotenv import DEFAULT_ENV_PATH, load_dotenv
+
+# 必须早于任何 os.getenv：否则 .env 里的 TO3D_ADAPTER 不会生效，服务会静默跑 mock
+ENV_FILE, ENV_KEYS_APPLIED = load_dotenv()
+
+__all__ = ["settings", "ENV_FILE", "ENV_KEYS_APPLIED", "DEFAULT_ENV_PATH"]
 
 
 def _bool(name: str, default: bool) -> bool:
@@ -95,6 +106,8 @@ class Settings:
     dataset_engine: str = os.getenv("TO3D_DATASET_ENGINE", "CYCLES")
     dataset_samples: int = _int("TO3D_DATASET_SAMPLES", 64)
     dataset_timeout: float = float(os.getenv("TO3D_DATASET_TIMEOUT", "3600"))
+    # 直接上传 3D 模型跑数据集时的单文件上限
+    max_model_bytes: int = _int("TO3D_MAX_MODEL_BYTES", 200 * 1024 * 1024)
 
 
 settings = Settings()

@@ -219,15 +219,14 @@ async function startDataset() {
   try {
     const r = await fetch(`/api/v1/generation/${currentTaskId}/dataset`, { method: 'POST' });
     if (!r.ok) throw new Error((await r.json()).detail || r.statusText);
-    pollDataset((await r.json()).dataset_id);
+    pollDataset((await r.json()).dataset_id, btn, status);
   } catch (e) {
     status.textContent = '失败：' + e.message; btn.disabled = false;
   }
 }
 
-async function pollDataset(dsId) {
-  const status = document.getElementById('dsStatus');
-  const btn = document.getElementById('dsBtn');
+// 两条来源（刚生成的产物 / 用户上传的模型）共用同一套轮询与下载展示
+function pollDataset(dsId, btn, status) {
   const tick = async () => {
     try {
       const s = await (await fetch(`/api/v1/dataset/${dsId}`)).json();
@@ -246,6 +245,40 @@ async function pollDataset(dsId) {
     }
   };
   tick();
+}
+
+// --- 上传已有 3D 模型 → 直接跑后续任务（无需先生成）-------------------------
+const UPLOAD_EXT = ['.glb', '.gltf', '.obj', '.fbx', '.ply'];
+const upFile = document.getElementById('upFile');
+document.getElementById('upBtn').addEventListener('click', () => upFile.click());
+upFile.addEventListener('change', () => {
+  const file = upFile.files[0];
+  if (file) uploadModel(file);
+  upFile.value = ''; // 允许重复选同一个文件
+});
+
+async function uploadModel(file) {
+  const btn = document.getElementById('upBtn');
+  const status = document.getElementById('upStatus');
+  const name = document.getElementById('upName');
+  const ext = file.name.slice(file.name.lastIndexOf('.')).toLowerCase();
+  const size = file.size >= 1048576
+    ? `${(file.size / 1048576).toFixed(1)} MB` : `${Math.max(1, Math.round(file.size / 1024))} KB`;
+  name.textContent = `${file.name} · ${size}`;
+  if (!UPLOAD_EXT.includes(ext)) {
+    status.textContent = `仅支持 ${UPLOAD_EXT.join(' / ')}，收到 ${ext || '无扩展名'}`;
+    return;
+  }
+  btn.disabled = true; status.textContent = '上传中…';
+  try {
+    const form = new FormData();
+    form.append('model', file, file.name);
+    const r = await fetch('/api/v1/dataset/upload', { method: 'POST', body: form });
+    if (!r.ok) throw new Error((await r.json()).detail || r.statusText);
+    pollDataset((await r.json()).dataset_id, btn, status);
+  } catch (e) {
+    status.textContent = '失败：' + e.message; btn.disabled = false;
+  }
 }
 
 function resetOutputs() {

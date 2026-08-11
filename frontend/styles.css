@@ -105,3 +105,10 @@ input[type=range]{width:100%;accent-color:var(--merge)}
 .ds-btn:disabled{opacity:.55;cursor:not-allowed}
 .ds-status{font-size:12.5px;color:var(--muted);margin-top:8px}
 .ds-status a{color:var(--merge)}
+
+/* 上传已有模型 → 直接跑后续任务 */
+.upl{margin-top:18px;padding-top:16px;border-top:1px solid var(--line)}
+.upl .ds-btn{margin-top:8px}
+.upl .hint{margin-top:8px}
+.upl-name{font-family:var(--mono);font-size:11px;color:var(--faint);margin-top:6px;
+  overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
